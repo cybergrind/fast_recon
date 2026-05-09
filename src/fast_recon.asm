@@ -15,6 +15,11 @@ MAX_PANES     = 64
 REFRESH_MS    = 200
 KEY_TICK_MS   = 100
 
+; JSONL tail window: read_file_tail mmaps at most this many bytes from the
+; end of each session's JSONL — long sessions can be tens or hundreds of MB.
+; We only care about the most recent assistant record.
+JSONL_TAIL_BYTES = 65536
+
 ; sum of visible column widths (kept fixed via right-pad in each cell)
 ROW_VISIBLE_COLS = 4 + 17 + 25 + 11 + 13 + 15 + 12
 
@@ -431,25 +436,66 @@ refresh_panes:
     mov     edx, 256
     call    memcpy
 
-    ; refresh JSONL each tick (tokens + timestamp change)
+    ; refresh JSONL each tick (tokens + timestamp change). Only the tail of
+    ; the file is mapped — the JSONL grows unbounded and the parser only
+    ; cares about the last assistant line.
     mov     rcx, qword [r14 + PCACHE_OFF_JPATH_LEN]
     test    rcx, rcx
     jz      .skip_jsonl
     lea     rdi, [jsonl_path]
-    call    read_file_all
+    mov     rsi, JSONL_TAIL_BYTES
+    call    read_file_tail
     test    rcx, rcx
     js      .skip_jsonl
     test    rax, rax
     jz      .skip_jsonl
+    test    rdx, rdx
+    jz      .skip_jsonl
 
-    push    rax                      ; ptr
-    push    rdx                      ; len
+    ; if mmap started mid-file, skip the (likely partial) first line
+    test    r8, r8
+    jz      .tail_no_skip
+    push    rax
+    push    rdx
+    mov     rsi, rax                 ; cursor
+    add     rdx, rax                 ; end ptr
+.tail_skip:
+    cmp     rsi, rdx
+    jae     .tail_no_newline
+    cmp     byte [rsi], 0x0A
+    je      .tail_after_nl
+    inc     rsi
+    jmp     .tail_skip
+.tail_after_nl:
+    inc     rsi                      ; past the '\n'
+    pop     rdx                      ; old len
+    pop     rax                      ; old ptr
+    push    rax                      ; preserve original ptr/len for release
+    push    rdx
+    mov     r9, rsi                  ; new cursor
+    sub     r9, rax                  ; bytes skipped
+    sub     rdx, r9                  ; remaining len
+    mov     rax, rsi                 ; ptr → first complete line
+    jmp     .tail_parse
+.tail_no_newline:
+    pop     rdx
+    pop     rax
+    jmp     .tail_release            ; nothing complete to parse
+.tail_no_skip:
+    push    rax                      ; preserve original ptr/len for release
+    push    rdx
+.tail_parse:
+    push    rax                      ; ptr (parse arg)
+    push    rdx                      ; len (parse arg)
     mov     rdi, rax
     mov     rsi, rdx
     lea     rdx, [r12 + ROW_OFF_INFO]
     call    parse_jsonl_buf
     pop     rdx
     pop     rdi
+.tail_release:
+    pop     rsi                      ; original len
+    pop     rdi                      ; original ptr
     call    release_file
 
 .skip_jsonl:
