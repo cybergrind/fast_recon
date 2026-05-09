@@ -1131,7 +1131,7 @@ kill_pid      rq 1
 n_panes       rd 1
 sel           rd 1
 tick_remaining rd 1
-in_raw        db 0
+in_raw        rb 1
 align 8
 tsave         rb TERMIOS_BYTES
 now_secs      rq 1

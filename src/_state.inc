@@ -36,8 +36,6 @@ _iw_pa_name_len       rq 1
 ; don't carry 2 KB of zero-fill statics on disk.
 _iw_dir_buf_ptr   rq 1
 _iw_full_buf_ptr  rq 1
-_dbg_lf_iw        db 0x0A
-_dbg_sp_iw        db ' '
 
 ; --- from app/jsonl_locate.inc ---
 align 8
@@ -79,7 +77,7 @@ _hold_ts  rq HOLD_ENTRIES         ; epoch seconds of last observed Working
 ; --- from core/num.inc ---
 ; 24-byte scratch buffer used by format_u64 (max u64 is 20 digits).
 align 16
-_fmt_tmp:     db 24 dup (?)
+_fmt_tmp:     rb 24
 _fmt_tmp_end:
 
 ; --- from os/arena.inc ---
