@@ -1,6 +1,6 @@
 # fast_recon
 
-A reimplementation of [recon](../) in pure x86-64 FASM assembly for Linux.
+A reimplementation of [recon](https://github.com/cybergrind/recon) in pure x86-64 FASM assembly for Linux.
 
 ## Goal
 
