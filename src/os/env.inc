@@ -152,7 +152,6 @@ home_dir:
     call    read_env_var
     ret
 
-segment readable
 _path_environ db '/proc/self/environ', 0
 _str_HOME     db 'HOME'
 

@@ -37,8 +37,9 @@ SYS_ioctl         = 16
 SYS_poll          = 7
 
 ; --- termios bits we touch ---
-TCGETS = 0x5401
-TCSETS = 0x5402
+TCGETS     = 0x5401
+TCSETS     = 0x5402
+TIOCGWINSZ = 0x5413
 
 T_BRKINT = 0x0002
 T_ICRNL  = 0x0100

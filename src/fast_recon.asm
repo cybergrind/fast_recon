@@ -15,13 +15,17 @@ MAX_PANES     = 64
 REFRESH_MS    = 2000
 KEY_TICK_MS   = 100
 
+; sum of visible column widths (kept fixed via right-pad in each cell)
+ROW_VISIBLE_COLS = 4 + 17 + 25 + 11 + 13 + 15 + 12
+
 ; --- per-row enriched record (kept parallel to pane_recs by index) ---
 ROW_OFF_CWD       = 0       ; 256 bytes of cwd (NUL-terminated)
 ROW_OFF_CWD_LEN   = 256
 ROW_OFF_INFO      = 264     ; 128 bytes of jsonl_info
 ROW_OFF_STATUS    = 392
 ROW_OFF_GIT       = 400     ; 256 bytes of git_info
-ROW_BYTES         = 656
+ROW_OFF_TS_EPOCH  = 656     ; q — parsed from INFO_OFF_TS_BUF, used as sort key
+ROW_BYTES         = 664
 
 segment readable executable
 entry $
@@ -29,6 +33,10 @@ entry $
     call    arena_init
     test    rax, rax
     js      .die_noterm
+
+    ; cache terminal width for row-padding (highlight bg fills)
+    call    term_get_cols
+    mov     dword [term_cols], eax
 
     ; --- terminal setup ---
     xor     edi, edi
@@ -104,11 +112,12 @@ entry $
     mov     eax, dword [n_panes]
     test    eax, eax
     jz      .poll_loop
+    ; sel is a DISPLAY index — map through sort_order to real row.
     movsxd  rax, dword [sel]
+    movsxd  rax, dword [sort_order + rax*4]
     imul    rax, PANE_REC_BYTES
     lea     rcx, [pane_recs]
     mov     rdi, qword [rcx + rax + PANE_OFF_PID]
-    ; (pane_recs is a small static array — leaving in BSS)
     mov     esi, SIGTERM
     call    sys_kill
     call    refresh_panes
@@ -136,6 +145,67 @@ entry $
     mov     edi, 2
     mov     eax, SYS_exit
     syscall
+
+; claim_jsonl_path — record the stem (basename minus ".jsonl") of the
+; just-resolved jsonl_path into claimed_buf, so the next pane's fallback
+; lookup will skip this file. Bounded by MAX_PANES slots.
+claim_jsonl_path:
+    mov     eax, dword [claimed_n]
+    cmp     eax, MAX_PANES
+    jge     .full
+
+    ; strlen(jsonl_path) -> r10
+    lea     rdi, [jsonl_path]
+    call    strlen
+    mov     r10, rax                 ; full path length
+
+    ; find last '/'
+    lea     rcx, [jsonl_path]
+    mov     r11, rcx
+    add     r11, r10                 ; one-past-end
+.find_slash:
+    cmp     r11, rcx
+    je      .full                    ; no slash found
+    cmp     byte [r11 - 1], '/'
+    je      .got_slash
+    dec     r11
+    jmp     .find_slash
+.got_slash:
+    ; stem = [r11, jsonl_path + r10 - 6)
+    lea     rdx, [jsonl_path]
+    add     rdx, r10
+    sub     rdx, 6                   ; drop ".jsonl"
+    cmp     rdx, r11
+    jbe     .full
+
+    ; slot = claimed_buf + claimed_n*CLAIM_SLOT
+    mov     eax, dword [claimed_n]
+    imul    rax, CLAIM_SLOT
+    lea     rdi, [claimed_buf]
+    add     rdi, rax
+    ; zero the slot (so the trailing-NUL check in find_recent works)
+    push    rdi
+    push    rdx
+    push    r11
+    xor     esi, esi
+    mov     edx, CLAIM_SLOT
+    call    memset
+    pop     r11
+    pop     rdx
+    pop     rdi
+
+    mov     rsi, r11                 ; stem start
+    mov     r9, rdx
+    sub     r9, r11                  ; stem length
+    cmp     r9, CLAIM_SLOT - 1
+    jbe     .copy_ok
+    mov     r9, CLAIM_SLOT - 1
+.copy_ok:
+    mov     rdx, r9
+    call    memcpy
+    inc     dword [claimed_n]
+.full:
+    ret
 
 ; -------------------------------------------------------------------
 ; refresh_panes — exec tmux, parse, then for each row enrich with cwd
@@ -175,6 +245,10 @@ refresh_panes:
 .reset:
     mov     dword [sel], 0
 .clamp_done:
+
+    ; reset the claimed-uuid list (used as we resolve JSONL fallbacks below
+    ; so two panes sharing a cwd don't collide on the same JSONL file).
+    mov     dword [claimed_n], 0
 
     ; --- enrich every row ---
     xor     ebp, ebp
@@ -237,15 +311,20 @@ refresh_panes:
     test    r8, r8
     jns     .have_jsonl
 .fallback_jsonl:
-    ; fallback: latest *.jsonl in projects/{encoded_cwd}/
+    ; fallback: latest unclaimed *.jsonl in projects/{encoded_cwd}/
     lea     rdi, [r12 + ROW_OFF_CWD]
     mov     rsi, qword [r12 + ROW_OFF_CWD_LEN]
     lea     rdx, [jsonl_path]
     mov     ecx, 1024
+    lea     r8, [claimed_buf]
+    movsxd  r9, dword [claimed_n]
     call    find_recent_jsonl_in_cwd
     test    r8, r8
     js      .skip_jsonl
 .have_jsonl:
+    ; record this jsonl's stem (filename without ".jsonl") in the claimed
+    ; list so subsequent panes don't reuse it.
+    call    claim_jsonl_path
 
     ; mmap + parse
     lea     rdi, [jsonl_path]
@@ -266,10 +345,41 @@ refresh_panes:
     call    release_file
 
 .skip_jsonl:
+    ; compute ts_epoch from INFO_OFF_TS_BUF if present
+    mov     rax, qword [r12 + ROW_OFF_INFO + INFO_OFF_TS_LEN]
+    test    rax, rax
+    jz      .ts_zero
+    lea     rdi, [r12 + ROW_OFF_INFO + INFO_OFF_TS_BUF]
+    mov     rsi, rax
+    call    iso8601_to_epoch
+    mov     qword [r12 + ROW_OFF_TS_EPOCH], rax
+    jmp     .ts_done
+.ts_zero:
+    mov     qword [r12 + ROW_OFF_TS_EPOCH], 0
+.ts_done:
     inc     ebp
     jmp     .enrich_loop
 
 .enrich_done:
+    ; build sort_keys[i] = row_data[i].ts_epoch ; then sort_idx_by_u64_desc.
+    xor     ecx, ecx
+.sk_loop:
+    cmp     ecx, dword [n_panes]
+    jge     .sk_done
+    mov     rax, rcx
+    imul    rax, ROW_BYTES
+    arena_lea r8, ARENA_OFF_ROW_DATA
+    add     r8, rax
+    mov     rax, qword [r8 + ROW_OFF_TS_EPOCH]
+    mov     qword [sort_keys + rcx*8], rax
+    inc     ecx
+    jmp     .sk_loop
+.sk_done:
+    lea     rdi, [sort_keys]
+    movsxd  rsi, dword [n_panes]
+    lea     rdx, [sort_order]
+    call    sort_idx_by_u64_desc
+
     pop     r13
     pop     r12
     pop     rbp
@@ -346,18 +456,41 @@ redraw:
 
     cmp     ebp, dword [sel]
     jne     .draw
-    call    term_inverse
+    call    term_select_bg_on
 .draw:
     call    draw_row
+    ; pad to terminal edge — for selected rows this extends the highlight,
+    ; for unselected rows the spaces are invisible.
+    mov     eax, dword [term_cols]
+    sub     eax, ROW_VISIBLE_COLS
+    jle     .reset_bg
+    cmp     eax, 256
+    jbe     .pad_ok
+    mov     eax, 256
+.pad_ok:
+    mov     edi, 1
+    lea     rsi, [pad_sp_long]
+    movsxd  rdx, eax
+    call    sys_write
+.reset_bg:
     cmp     ebp, dword [sel]
     jne     .row_done
-    call    term_reset
+    call    term_select_bg_off
 .row_done:
     inc     ebp
     jmp     .row_loop
 
 .footer:
-    mov     edi, 24
+    ; place hint one blank line under the rows; when empty leave room for
+    ; the "(no claude panes)" message at row 4.
+    mov     eax, dword [n_panes]
+    test    eax, eax
+    jnz     .footer_have_rows
+    mov     eax, 1                   ; pretend 1 row so footer = 5
+.footer_have_rows:
+    add     eax, 4
+    cdqe
+    mov     rdi, rax
     mov     esi, 1
     call    term_move
     lea     rdi, [hint]
@@ -386,12 +519,13 @@ draw_row:
     push    r14
     push    r15
 
-    ; row_data ptr -> r14, pane_rec ptr -> r15
-    mov     rax, rbp
+    ; resolve display→real via sort_order; rbp stays as the display index
+    movsxd  rbx, dword [sort_order + rbp*4]
+    mov     rax, rbx
     imul    rax, ROW_BYTES
     arena_lea r14, ARENA_OFF_ROW_DATA
     add     r14, rax
-    mov     rax, rbp
+    mov     rax, rbx
     imul    rax, PANE_REC_BYTES
     lea     r15, [pane_recs]
     add     r15, rax
@@ -666,32 +800,38 @@ draw_row:
     mov     r12, qword [r14 + ROW_OFF_INFO + INFO_OFF_TS_LEN]
     test    r12, r12
     jz      .act_dash
-    ; parse ISO -> epoch
     lea     rdi, [r14 + ROW_OFF_INFO + INFO_OFF_TS_BUF]
     mov     rsi, r12
     call    iso8601_to_epoch
-    mov     r13, rax                 ; then
+    mov     r13, rax
     lea     rdi, [scratch]
     mov     esi, 16
     mov     rdx, qword [now_secs]
     mov     rcx, r13
     call    format_relative
     mov     r12, rax
+    cmp     r12, 12
+    jbe     .act_ok
+    mov     r12, 12
+.act_ok:
     mov     edi, 1
     lea     rsi, [scratch]
     mov     rdx, r12
     call    sys_write
-    pop     r15
-    pop     r14
-    pop     r13
-    pop     r12
-    pop     rbx
-    ret
+    mov     ecx, 12
+    sub     rcx, r12
+    jle     .draw_done
+    mov     edi, 1
+    lea     rsi, [pad_sp]
+    mov     rdx, rcx
+    call    sys_write
+    jmp     .draw_done
 .act_dash:
     mov     edi, 1
-    lea     rsi, [pad_dash]
-    mov     edx, 4
+    lea     rsi, [pad_sp]            ; just blanks (12 cols)
+    mov     edx, 12
     call    sys_write
+.draw_done:
     pop     r15
     pop     r14
     pop     r13
@@ -721,31 +861,42 @@ hint_len   = $ - hint
 
 pad_sp     db '                                '   ; 32 spaces
 pad_dash   db '-                                '   ; dash + 31 spaces
+pad_sp_long:
+    times 256 db ' '
+pad_sp_long_end:
 
 ; Status strings: ANSI color + "● <label>" + reset + spaces (11 visible cols).
 ; UTF-8 bullet "●" = E2 97 8F.
-_st_working_str db 0x1B,'[32m',0xE2,0x97,0x8F,' Working',0x1B,'[0m  '
+; Status strings: ANSI fg-color + dot + label + fg-reset (39m, NOT 0m, so we
+; don't kill the row's bg highlight). Padded to 11 visible cols.
+_st_working_str db 0x1B,'[32m',0xE2,0x97,0x8F,' Working',0x1B,'[39m  '
 _st_working_len = $ - _st_working_str
-_st_input_str   db 0x1B,'[33m',0xE2,0x97,0x8F,' Input',0x1B,'[0m    '
+_st_input_str   db 0x1B,'[33m',0xE2,0x97,0x8F,' Input',0x1B,'[39m    '
 _st_input_len   = $ - _st_input_str
-_st_new_str     db 0x1B,'[34m',0xE2,0x97,0x8F,' New',0x1B,'[0m      '
+_st_new_str     db 0x1B,'[34m',0xE2,0x97,0x8F,' New',0x1B,'[39m      '
 _st_new_len     = $ - _st_new_str
-_st_idle_str    db 0x1B,'[90m',0xE2,0x97,0x8F,' Idle',0x1B,'[0m     '
+_st_idle_str    db 0x1B,'[90m',0xE2,0x97,0x8F,' Idle',0x1B,'[39m     '
 _st_idle_len    = $ - _st_idle_str
 
-_proj_dimcolon  db 0x1B,'[90m::',0x1B,'[0m'
+_proj_dimcolon  db 0x1B,'[90m::',0x1B,'[39m'
 _proj_dimcolon_len = $ - _proj_dimcolon
 _proj_cyan      db 0x1B,'[36m'
 _proj_cyan_len  = $ - _proj_cyan
 _proj_green     db 0x1B,'[32m'
 _proj_green_len = $ - _proj_green
-_proj_reset     db 0x1B,'[0m'
+_proj_reset     db 0x1B,'[39m'
 _proj_reset_len = $ - _proj_reset
 
 segment readable writeable
 align 8
 ; out_buf and row_data live in the mmap'd arena (see os/arena.inc).
 pane_recs     rb MAX_PANES * PANE_REC_BYTES
+sort_keys     rq MAX_PANES
+sort_order    rd MAX_PANES
+term_cols     rd 1
+claimed_n     rd 1
+align 8
+claimed_buf   rb MAX_PANES * CLAIM_SLOT
 n_panes       rd 1
 sel           rd 1
 tick_remaining rd 1

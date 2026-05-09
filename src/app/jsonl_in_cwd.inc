@@ -2,7 +2,8 @@
 ;
 ; Claude encodes cwd by replacing '/' and '.' with '-'.
 
-STAT_MTIME_OFFSET = 88
+STAT_MTIME_OFFSET = 88       ; struct stat.st_mtime.tv_sec (s64)
+STAT_MTIME_NS_OFFSET = 96    ; struct stat.st_mtime.tv_nsec (s64)
 
 segment readable executable
 
@@ -32,8 +33,19 @@ encode_cwd:
 .done:
     ret
 
-; find_recent_jsonl_in_cwd(rdi=cwd, rsi=cwd_len, rdx=outbuf, rcx=cap)
+; find_recent_jsonl_in_cwd(rdi=cwd, rsi=cwd_len, rdx=outbuf, rcx=cap,
+;                          r8=claimed_buf, r9=claimed_count)
 ;   -> rax = path_len, r8 = 0/-1
+;
+; claimed_buf is a flat array of CLAIM_SLOT-byte slots; each slot starts with a
+; UUID stem (the JSONL filename minus ".jsonl"), NUL-padded. claimed_count
+; is the number of populated slots. Pass r8=NULL/r9=0 to skip exclusion.
+;
+; Behavior: scan all *.jsonl in $HOME/.claude/projects/<encoded_cwd>/, exclude
+; entries whose stem matches any claimed slot, return the path of the most
+; recently modified remaining one.
+CLAIM_SLOT = 40
+
 find_recent_jsonl_in_cwd:
     push    rbx
     push    rbp
@@ -41,6 +53,10 @@ find_recent_jsonl_in_cwd:
     push    r13
     push    r14
     push    r15
+
+    ; stash claimed args before we clobber r8/r9 in the dent loop
+    mov     qword [_iw_claimed_buf], r8
+    mov     qword [_iw_claimed_n], r9
 
     mov     rbx, rdi                 ; cwd
     mov     rbp, rsi                 ; cwd_len
@@ -85,6 +101,7 @@ find_recent_jsonl_in_cwd:
     mov     r15, rax                 ; dir fd
 
     mov     qword [_iw_best_mtime], 0
+    mov     qword [_iw_best_mtime_ns], 0
     mov     qword [_iw_best_name_len], 0
 
 .refill:
@@ -141,6 +158,54 @@ find_recent_jsonl_in_cwd:
     test    rax, rax
     jnz     .next_dent
 
+    ; --- check the stem against the claimed list, skip on match ---
+    ; stem = [rdi, rdi + (rsi - 6))
+    push    rdi
+    push    rsi
+    mov     r10, rsi
+    sub     r10, _seg_jsonl2_len     ; stem length
+    mov     r11, qword [_iw_claimed_n]
+    test    r11, r11
+    jz      .not_claimed
+    mov     rcx, qword [_iw_claimed_buf]
+    xor     edx, edx                 ; index
+.claim_loop:
+    cmp     rdx, r11
+    jae     .not_claimed
+    ; compare claimed[i] (CLAIM_SLOT bytes) with stem (r10 bytes)
+    push    rdi
+    push    rsi
+    push    rdx
+    push    rcx
+    push    r10
+    push    r11
+    mov     rsi, rcx
+    mov     rdx, r10
+    call    memcmp
+    pop     r11
+    pop     r10
+    pop     rcx
+    pop     rdx
+    pop     rsi
+    pop     rdi
+    test    rax, rax
+    jnz     .claim_next
+    ; matched — but only if claimed slot's NEXT byte (stem_len) is NUL,
+    ; i.e. the stems are equal length. Otherwise it's a prefix match.
+    cmp     byte [rcx + r10], 0
+    jne     .claim_next
+    ; matched fully — skip this dent
+    pop     rsi
+    pop     rdi
+    jmp     .next_dent
+.claim_next:
+    add     rcx, CLAIM_SLOT
+    inc     rdx
+    jmp     .claim_loop
+.not_claimed:
+    pop     rsi
+    pop     rdi
+
     ; build full_path = dir_path + name into _iw_full_buf
     push    rdi                      ; name ptr
     push    rsi                      ; name_len
@@ -176,13 +241,19 @@ find_recent_jsonl_in_cwd:
     test    rax, rax
     js      .next_dent
 
-    ; mtime > best?
+    ; (sec_new, nsec_new) > (sec_best, nsec_best) ?  — full nanosecond compare
     mov     rax, qword [_iw_statbuf + STAT_MTIME_OFFSET]
     cmp     rax, qword [_iw_best_mtime]
+    ja      .new_best
+    jb      .next_dent
+    mov     rax, qword [_iw_statbuf + STAT_MTIME_NS_OFFSET]
+    cmp     rax, qword [_iw_best_mtime_ns]
     jbe     .next_dent
-
-    ; new best — copy name to _iw_best_name_buf
+.new_best:
+    mov     rax, qword [_iw_statbuf + STAT_MTIME_OFFSET]
     mov     qword [_iw_best_mtime], rax
+    mov     rax, qword [_iw_statbuf + STAT_MTIME_NS_OFFSET]
+    mov     qword [_iw_best_mtime_ns], rax
     mov     qword [_iw_best_name_len], rsi
     mov     rdx, rsi
     push    rsi
@@ -247,6 +318,11 @@ _iw_full_buf     rb 1024
 _iw_dent_size    rq 1
 _iw_dent_cur     rq 1
 _iw_statbuf      rb 144
-_iw_best_mtime   rq 1
+_iw_best_mtime    rq 1
+_iw_best_mtime_ns rq 1
 _iw_best_name_len rq 1
 _iw_best_name_buf rb 256
+_iw_claimed_buf   rq 1
+_iw_claimed_n     rq 1
+_dbg_lf_iw        db 0x0A
+_dbg_sp_iw        db ' '

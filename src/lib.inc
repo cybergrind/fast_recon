@@ -5,6 +5,7 @@
 include 'core/str.inc'
 include 'core/num.inc'
 include 'core/json.inc'
+include 'core/sort.inc'
 
 ; --- os: syscall wrappers and OS resources ---
 include 'os/sys.inc'

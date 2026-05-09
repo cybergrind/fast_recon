@@ -136,6 +136,36 @@ term_reset:
     mov     rsi, _esc_reset_len
     jmp     term_write_str
 
+; term_select_bg_on -> CSI 48;5;238m  (subtle dark-grey background)
+term_select_bg_on:
+    lea     rdi, [_esc_sel_bg_on]
+    mov     rsi, _esc_sel_bg_on_len
+    jmp     term_write_str
+
+; term_select_bg_off -> CSI 49m (default background, fg untouched)
+term_select_bg_off:
+    lea     rdi, [_esc_sel_bg_off]
+    mov     rsi, _esc_sel_bg_off_len
+    jmp     term_write_str
+
+; term_get_cols() -> rax = terminal columns (defaults to 80 on failure)
+term_get_cols:
+    sub     rsp, 16                  ; struct winsize { u16 row, col, xp, yp }
+    mov     edi, 1
+    mov     rsi, TIOCGWINSZ
+    mov     rdx, rsp
+    call    sys_ioctl
+    test    rax, rax
+    js      .fallback
+    movzx   eax, word [rsp + 2]
+    test    eax, eax
+    jnz     .out
+.fallback:
+    mov     eax, 80
+.out:
+    add     rsp, 16
+    ret
+
 ; term_move(rdi=row1, rsi=col1) — emit CSI <row>;<col>H. 1-based.
 term_move:
     push    rbx
@@ -225,6 +255,10 @@ _esc_inv       db 0x1B,'[7m'
 _esc_inv_len   = $ - _esc_inv
 _esc_reset     db 0x1B,'[0m'
 _esc_reset_len = $ - _esc_reset
+_esc_sel_bg_on  db 0x1B,'[48;5;238m'
+_esc_sel_bg_on_len = $ - _esc_sel_bg_on
+_esc_sel_bg_off db 0x1B,'[49m'
+_esc_sel_bg_off_len = $ - _esc_sel_bg_off
 
 segment readable writeable
 _term_raw_buf  rb TERMIOS_BYTES
