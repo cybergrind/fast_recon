@@ -10,6 +10,7 @@ TEST_PID = 4242000000                ; almost certainly free
 
 segment readable executable
 entry $
+    call    arena_init
     ; --- build path via build_session_path so we know exactly where to write ---
     mov     rdi, TEST_PID
     lea     rsi, [path_buf]

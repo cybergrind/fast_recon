@@ -63,7 +63,7 @@ find_jsonl_path:
 
 .fill_buf:
     mov     rdi, r15
-    lea     rsi, [_dent_buf]
+    arena_lea rsi, ARENA_OFF_DENT_BUF
     mov     edx, DENTBUF_BYTES
     call    sys_getdents64
     test    rax, rax
@@ -75,7 +75,7 @@ find_jsonl_path:
     mov     rcx, qword [_dent_cur]
     cmp     rcx, qword [_dent_size]
     jae     .fill_buf
-    lea     r9, [_dent_buf]
+    arena_lea r9, ARENA_OFF_DENT_BUF
     add     r9, rcx
     movzx   eax, word [r9 + DENT_RECLEN_OFF]
     add     rcx, rax
@@ -195,7 +195,6 @@ _seg_jsonl_len = $ - _seg_jsonl
 
 segment readable writeable
 align 8
-_dent_buf    rb DENTBUF_BYTES
 _dent_size   rq 1
 _dent_cur    rq 1
 _cand_name   rq 1

@@ -37,22 +37,22 @@ classify_pane_status:
     mov     qword [_cps_argv + 32], _cps_arg_p
     mov     qword [_cps_argv + 40], 0
 
-    ; exec_capture into _cps_out
+    ; exec_capture into the arena's CPS_OUT slice
     lea     rdi, [_cps_path_tmux]
     lea     rsi, [_cps_argv]
-    lea     rdx, [_cps_out]
+    arena_lea rdx, ARENA_OFF_CPS_OUT
     mov     rcx, _CPS_OUT_BYTES
+    push    rdx
     call    exec_capture
+    pop     rbx                      ; ← rbx now holds the buffer base
     test    rax, rax
     js      .idle
     mov     r12, rax                 ; bytes captured
 
-    ; Find last non-empty line in [_cps_out, _cps_out + r12).
-    ; Strategy: scan backwards skipping trailing whitespace and \n, then walk
-    ; back to the previous \n; that span is our last line.
-    lea     r13, [_cps_out + r12]    ; end (one past)
+    ; Find last non-empty line in [rbx, rbx + r12).
+    lea     r13, [rbx + r12]
 .skip_trail:
-    cmp     r13, _cps_out
+    cmp     r13, rbx
     jbe     .idle
     movzx   eax, byte [r13 - 1]
     cmp     al, 0x0A
@@ -66,11 +66,10 @@ classify_pane_status:
     dec     r13
     jmp     .skip_trail
 .find_start:
-    ; r13 = position one-past last non-ws char of the last line
     mov     rdi, r13
     dec     rdi
 .scan_back:
-    cmp     rdi, _cps_out
+    cmp     rdi, rbx
     jbe     .got_line
     movzx   eax, byte [rdi - 1]
     cmp     al, 0x0A
@@ -139,4 +138,3 @@ segment readable writeable
 align 8
 _cps_id_buf rb 32
 _cps_argv   rq 6
-_cps_out    rb _CPS_OUT_BYTES

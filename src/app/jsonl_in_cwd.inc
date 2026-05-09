@@ -89,7 +89,7 @@ find_recent_jsonl_in_cwd:
 
 .refill:
     mov     rdi, r15
-    lea     rsi, [_iw_dent_buf]
+    arena_lea rsi, ARENA_OFF_IW_DENT_BUF
     mov     edx, 8192
     call    sys_getdents64
     test    rax, rax
@@ -101,7 +101,7 @@ find_recent_jsonl_in_cwd:
     mov     rax, qword [_iw_dent_cur]
     cmp     rax, qword [_iw_dent_size]
     jae     .refill
-    lea     r8, [_iw_dent_buf]
+    arena_lea r8, ARENA_OFF_IW_DENT_BUF
     add     r8, rax
     movzx   ecx, word [r8 + DENT_RECLEN_OFF]
     add     rax, rcx
@@ -244,7 +244,6 @@ align 8
 _iw_dir_buf      rb 1024
 _iw_dir_len      rq 1
 _iw_full_buf     rb 1024
-_iw_dent_buf     rb 8192
 _iw_dent_size    rq 1
 _iw_dent_cur     rq 1
 _iw_statbuf      rb 144

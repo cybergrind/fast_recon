@@ -31,7 +31,7 @@ _env_load:
     test    rax, rax
     jz      .done
     mov     rdi, r12
-    lea     rsi, [_env_buf]
+    arena_lea rsi, ARENA_OFF_ENV_BUF
     add     rsi, r13
     mov     rdx, rax
     call    sys_read
@@ -68,7 +68,7 @@ read_env_var:
     test    rax, rax
     js      .err
 
-    lea     r14, [_env_buf]
+    arena_lea r14, ARENA_OFF_ENV_BUF
     mov     r15, [_env_len]
     add     r15, r14                 ; end
 
@@ -157,6 +157,5 @@ _path_environ db '/proc/self/environ', 0
 _str_HOME     db 'HOME'
 
 segment readable writeable
-_env_buf     rb _env_buf_cap
 _env_len     rq 1
 _env_loaded  rd 1

@@ -12,6 +12,7 @@ include 'os/io.inc'
 include 'os/proc.inc'
 include 'os/term.inc'
 include 'os/proc_paths.inc'
+include 'os/arena.inc'
 include 'os/env.inc'
 
 ; --- app: domain logic (tmux, claude session files) ---

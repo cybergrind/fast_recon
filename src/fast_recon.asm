@@ -25,6 +25,11 @@ ROW_BYTES         = 656
 
 segment readable executable
 entry $
+    ; --- mmap big buffers (out_buf, row_data, env, dent, cps_out, …) ---
+    call    arena_init
+    test    rax, rax
+    js      .die_noterm
+
     ; --- terminal setup ---
     xor     edi, edi
     lea     rsi, [tsave]
@@ -103,6 +108,7 @@ entry $
     imul    rax, PANE_REC_BYTES
     lea     rcx, [pane_recs]
     mov     rdi, qword [rcx + rax + PANE_OFF_PID]
+    ; (pane_recs is a small static array — leaving in BSS)
     mov     esi, SIGTERM
     call    sys_kill
     call    refresh_panes
@@ -143,14 +149,14 @@ refresh_panes:
 
     lea     rdi, [path_tmux]
     lea     rsi, [argv_tmux]
-    lea     rdx, [out_buf]
+    arena_lea rdx, ARENA_OFF_OUT_BUF
     mov     rcx, OUT_BUF_BYTES
     call    exec_capture
     test    rax, rax
     js      .empty
     mov     rbx, rax
 
-    lea     rdi, [out_buf]
+    arena_lea rdi, ARENA_OFF_OUT_BUF
     mov     rsi, rbx
     lea     rdx, [pane_recs]
     mov     ecx, MAX_PANES
@@ -180,7 +186,7 @@ refresh_panes:
     ; row pointer
     mov     rax, rbp
     imul    rax, ROW_BYTES
-    lea     r12, [row_data]
+    arena_lea r12, ARENA_OFF_ROW_DATA
     add     r12, rax
     ; pane record pointer
     mov     rax, rbp
@@ -383,7 +389,7 @@ draw_row:
     ; row_data ptr -> r14, pane_rec ptr -> r15
     mov     rax, rbp
     imul    rax, ROW_BYTES
-    lea     r14, [row_data]
+    arena_lea r14, ARENA_OFF_ROW_DATA
     add     r14, rax
     mov     rax, rbp
     imul    rax, PANE_REC_BYTES
@@ -738,9 +744,8 @@ _proj_reset_len = $ - _proj_reset
 
 segment readable writeable
 align 8
-out_buf       rb OUT_BUF_BYTES
+; out_buf and row_data live in the mmap'd arena (see os/arena.inc).
 pane_recs     rb MAX_PANES * PANE_REC_BYTES
-row_data      rb MAX_PANES * ROW_BYTES
 n_panes       rd 1
 sel           rd 1
 tick_remaining rd 1

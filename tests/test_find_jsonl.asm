@@ -16,6 +16,7 @@ SYS_rmdir = 84
 
 segment readable executable
 entry $
+    call    arena_init
     ; build $HOME -> dir_path
     lea     rdi, [dir_path]
     mov     esi, 256

@@ -5,6 +5,7 @@ include '../src/common.inc'
 
 segment readable executable
 entry $
+    call    arena_init
     ; HOME must exist when running tests under any normal shell.
     lea     rdi, [outbuf]
     mov     esi, 256

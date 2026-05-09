@@ -134,3 +134,10 @@ macro test_pass {
     mov     eax, SYS_exit
     syscall
 }
+
+; arena_lea reg, ARENA_OFF_X — load runtime address of an arena slice into reg.
+; Uses the global `arena_base` pointer (set by arena_init at startup).
+macro arena_lea reg, off {
+    mov     reg, qword [arena_base]
+    add     reg, off
+}
