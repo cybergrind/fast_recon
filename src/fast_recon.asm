@@ -841,9 +841,6 @@ arg_F      db '-F', 0
 arg_fmt    db '#{pane_id}|#{session_name}|#{pane_pid}|#{pane_current_command}', 0
 argv_tmux  dq path_tmux, arg_lp, arg_a, arg_F, arg_fmt, 0
 
-;            "#   Session         Project                 Status     Model       Context        Last"
-hdr_cols   db '#   Session         Project                 Status     Model       Context        Last'
-hdr_cols_len = $ - hdr_cols
 msg_empty  db '(no claude panes)'
 msg_empty_len = $ - msg_empty
 hint       db ' j/k move  x kill  q quit'
