@@ -43,6 +43,14 @@ entry $
     test    rax, rax
     js      .die_noterm
 
+    ; cache absolute addresses of arena slices that are referenced from
+    ; many places. Storing 8-byte pointers in the static section is cheaper
+    ; than carrying multi-KB zero-fill arrays on disk.
+    arena_lea rax, ARENA_OFF_IW_DIR_BUF
+    mov     qword [_iw_dir_buf_ptr], rax
+    arena_lea rax, ARENA_OFF_IW_FULL_BUF
+    mov     qword [_iw_full_buf_ptr], rax
+
     ; cache terminal width for row-padding (highlight bg fills)
     call    term_get_cols
     mov     dword [term_cols], eax
@@ -131,7 +139,7 @@ entry $
     movsxd  rax, dword [sel]
     movsxd  rax, dword [sort_order + rax*4]
     imul    rax, PANE_REC_BYTES
-    lea     rcx, [pane_recs]
+    arena_lea rcx, ARENA_OFF_PANE_RECS
     mov     rdi, qword [rcx + rax + PANE_OFF_PID]
     mov     qword [kill_pid], rdi
     mov     esi, SIGTERM
@@ -195,12 +203,12 @@ claim_jsonl_path:
     jge     .full
 
     ; strlen(jsonl_path) -> r10
-    lea     rdi, [jsonl_path]
+    arena_lea rdi, ARENA_OFF_JSONL_PATH
     call    strlen
     mov     r10, rax                 ; full path length
 
     ; find last '/'
-    lea     rcx, [jsonl_path]
+    arena_lea rcx, ARENA_OFF_JSONL_PATH
     mov     r11, rcx
     add     r11, r10                 ; one-past-end
 .find_slash:
@@ -212,7 +220,7 @@ claim_jsonl_path:
     jmp     .find_slash
 .got_slash:
     ; stem = [r11, jsonl_path + r10 - 6)
-    lea     rdx, [jsonl_path]
+    arena_lea rdx, ARENA_OFF_JSONL_PATH
     add     rdx, r10
     sub     rdx, 6                   ; drop ".jsonl"
     cmp     rdx, r11
@@ -221,7 +229,7 @@ claim_jsonl_path:
     ; slot = claimed_buf + claimed_n*CLAIM_SLOT
     mov     eax, dword [claimed_n]
     imul    rax, CLAIM_SLOT
-    lea     rdi, [claimed_buf]
+    arena_lea rdi, ARENA_OFF_CLAIMED_BUF
     add     rdi, rax
     ; zero the slot (so the trailing-NUL check in find_recent works)
     push    rdi
@@ -272,7 +280,7 @@ refresh_panes:
 
     arena_lea rdi, ARENA_OFF_OUT_BUF
     mov     rsi, rbx
-    lea     rdx, [pane_recs]
+    arena_lea rdx, ARENA_OFF_PANE_RECS
     mov     ecx, MAX_PANES
     call    parse_claude_panes
     mov     dword [n_panes], eax
@@ -289,12 +297,14 @@ refresh_panes:
     imul    edx, PANE_REC_BYTES
     push    rax
     push    rcx
-    mov     rdi, qword [pane_recs + rdx + PANE_OFF_PID]
+    arena_lea r9, ARENA_OFF_PANE_RECS
+    mov     rdi, qword [r9 + rdx + PANE_OFF_PID]
     call    pid_descend_to_claude
     pop     rcx
     mov     edx, ecx
     imul    edx, PANE_REC_BYTES
-    mov     qword [pane_recs + rdx + PANE_OFF_PID], rax
+    arena_lea r9, ARENA_OFF_PANE_RECS
+    mov     qword [r9 + rdx + PANE_OFF_PID], rax
     pop     rax
     inc     ecx
     jmp     .descend_loop
@@ -325,7 +335,8 @@ refresh_panes:
     jge     .alive_fill_done
     mov     rax, rcx
     imul    rax, PANE_REC_BYTES
-    mov     rax, qword [pane_recs + rax + PANE_OFF_PID]
+    arena_lea r9, ARENA_OFF_PANE_RECS
+    mov     rax, qword [r9 + rax + PANE_OFF_PID]
     mov     dword [alive_pids + rcx*4], eax
     inc     ecx
     jmp     .alive_fill
@@ -343,7 +354,7 @@ refresh_panes:
     jge     .pre_claim_done
     mov     rax, rbp
     imul    rax, PANE_REC_BYTES
-    lea     r13, [pane_recs]
+    arena_lea r13, ARENA_OFF_PANE_RECS
     add     r13, rax
     mov     rdi, qword [r13 + PANE_OFF_PID]
     call    pcache_lookup
@@ -354,12 +365,13 @@ refresh_panes:
     test    rcx, rcx
     jz      .pre_claim_next
     push    rcx
-    lea     rdi, [jsonl_path]
+    arena_lea rdi, ARENA_OFF_JSONL_PATH
     lea     rsi, [r14 + PCACHE_OFF_JPATH]
     mov     rdx, rcx
     call    memcpy
     pop     rcx
-    mov     byte [jsonl_path + rcx], 0
+    arena_lea r9, ARENA_OFF_JSONL_PATH
+    mov     byte [r9 + rcx], 0
     call    claim_jsonl_path
 .pre_claim_next:
     inc     ebp
@@ -381,7 +393,7 @@ refresh_panes:
     ; pane record pointer
     mov     rax, rbp
     imul    rax, PANE_REC_BYTES
-    lea     r13, [pane_recs]
+    arena_lea r13, ARENA_OFF_PANE_RECS
     add     r13, rax
 
     ; zero the row
@@ -438,12 +450,13 @@ refresh_panes:
     test    rcx, rcx
     jz      .resolve_jsonl
     push    rcx
-    lea     rdi, [jsonl_path]
+    arena_lea rdi, ARENA_OFF_JSONL_PATH
     lea     rsi, [r14 + PCACHE_OFF_JPATH]
     mov     rdx, rcx
     call    memcpy
     pop     rcx
-    mov     byte [jsonl_path + rcx], 0
+    arena_lea r9, ARENA_OFF_JSONL_PATH
+    mov     byte [r9 + rcx], 0
     jmp     .copy_to_row
 
 .resolve_jsonl:
@@ -460,7 +473,7 @@ refresh_panes:
     mov     r8, rax
     lea     rdi, [r14 + PCACHE_OFF_UUID]
     mov     rsi, r8
-    lea     rdx, [jsonl_path]
+    arena_lea rdx, ARENA_OFF_JSONL_PATH
     mov     ecx, 1024
     call    find_jsonl_path
     test    r8, r8
@@ -478,7 +491,7 @@ refresh_panes:
     js      .copy_to_row
     lea     rdi, [r14 + PCACHE_OFF_CWD]
     mov     rsi, qword [r14 + PCACHE_OFF_CWD_LEN]
-    lea     rdx, [jsonl_path]
+    arena_lea rdx, ARENA_OFF_JSONL_PATH
     mov     ecx, 1024
     mov     r8, rax                  ; pid_start_epoch
     call    find_jsonl_by_pid_start
@@ -488,7 +501,7 @@ refresh_panes:
     mov     qword [r14 + PCACHE_OFF_JPATH_LEN], rax
     push    rax
     lea     rdi, [r14 + PCACHE_OFF_JPATH]
-    lea     rsi, [jsonl_path]
+    arena_lea rsi, ARENA_OFF_JSONL_PATH
     mov     rdx, rax
     call    memcpy
     pop     rax
@@ -514,7 +527,7 @@ refresh_panes:
     mov     rcx, qword [r14 + PCACHE_OFF_JPATH_LEN]
     test    rcx, rcx
     jz      .skip_jsonl
-    lea     rdi, [jsonl_path]
+    arena_lea rdi, ARENA_OFF_JSONL_PATH
     mov     rsi, JSONL_TAIL_BYTES
     call    read_file_tail
     test    rcx, rcx
@@ -590,7 +603,7 @@ refresh_panes:
     mov     rcx, qword [r14 + PCACHE_OFF_JPATH_LEN]
     test    rcx, rcx
     jz      .skip_reconcile
-    lea     rdi, [jsonl_path]
+    arena_lea rdi, ARENA_OFF_JSONL_PATH
     call    path_mtime
     test    rcx, rcx
     js      .skip_reconcile
@@ -754,7 +767,7 @@ draw_row:
     add     r14, rax
     mov     rax, rbx
     imul    rax, PANE_REC_BYTES
-    lea     r15, [pane_recs]
+    arena_lea r15, ARENA_OFF_PANE_RECS
     add     r15, rax
 
     ; --- # (3 chars right-padded) ---
@@ -1111,13 +1124,14 @@ _proj_reset_len = $ - _proj_reset
 segment readable writeable
 align 8
 ; out_buf and row_data live in the mmap'd arena (see os/arena.inc).
-pane_recs     rb MAX_PANES * PANE_REC_BYTES
+; pane_recs lives in arena (ARENA_OFF_PANE_RECS) so the binary doesn't carry
+; MAX_PANES*PANE_REC_BYTES of zero-fill on disk.
 sort_keys     rq MAX_PANES
 sort_order    rd MAX_PANES
 term_cols     rd 1
 claimed_n     rd 1
 align 8
-claimed_buf   rb MAX_PANES * CLAIM_SLOT
+; claimed_buf lives in arena (ARENA_OFF_CLAIMED_BUF).
 alive_pids    rd MAX_PANES
 kill_pid      rq 1
 n_panes       rd 1
@@ -1127,6 +1141,6 @@ in_raw        db 0
 align 8
 tsave         rb TERMIOS_BYTES
 uuid_buf      rb 64
-jsonl_path    rb 1024
+; jsonl_path lives in arena (ARENA_OFF_JSONL_PATH).
 scratch       rb 64
 now_secs      rq 1

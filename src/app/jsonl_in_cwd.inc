@@ -64,14 +64,15 @@ find_recent_jsonl_in_cwd:
     mov     r13, rcx                 ; cap
 
     ; Build dir_path into _iw_dir_buf, save its length in _iw_dir_len.
-    lea     rdi, [_iw_dir_buf]
+    mov     rdi, qword [_iw_dir_buf_ptr]
     mov     esi, 1024
     call    home_dir
     test    r8, r8
     js      .err
     mov     r14, rax                 ; len
 
-    lea     rdi, [_iw_dir_buf + r14]
+    mov     rdi, qword [_iw_dir_buf_ptr]
+    add     rdi, r14
     lea     rsi, [_seg_proj2]
     mov     rdx, _seg_proj2_len
     call    memcpy
@@ -80,19 +81,21 @@ find_recent_jsonl_in_cwd:
     ; encode cwd into [_iw_dir_buf + r14 ..]
     mov     rdi, rbx
     mov     rsi, rbp
-    lea     rdx, [_iw_dir_buf + r14]
+    mov     rdx, qword [_iw_dir_buf_ptr]
+    add     rdx, r14
     mov     rcx, 1024
     sub     rcx, r14
     sub     rcx, 64                  ; reserve space
     call    encode_cwd
     add     r14, rax
-    mov     byte [_iw_dir_buf + r14], '/'
+    mov     r9, qword [_iw_dir_buf_ptr]
+    mov     byte [r9 + r14], '/'
     inc     r14
-    mov     byte [_iw_dir_buf + r14], 0
+    mov     byte [r9 + r14], 0
     mov     qword [_iw_dir_len], r14
 
     ; open dir
-    lea     rdi, [_iw_dir_buf]
+    mov     rdi, qword [_iw_dir_buf_ptr]
     xor     esi, esi
     xor     edx, edx
     call    sys_open
@@ -209,8 +212,8 @@ find_recent_jsonl_in_cwd:
     ; build full_path = dir_path + name into _iw_full_buf
     push    rdi                      ; name ptr
     push    rsi                      ; name_len
-    mov     rdi, _iw_full_buf
-    lea     rsi, [_iw_dir_buf]
+    mov     rdi, qword [_iw_full_buf_ptr]
+    mov     rsi, qword [_iw_dir_buf_ptr]
     mov     rdx, qword [_iw_dir_len]
     call    memcpy
     pop     rsi
@@ -218,7 +221,8 @@ find_recent_jsonl_in_cwd:
     push    rsi                      ; saved name_len for later
     mov     rdx, qword [_iw_dir_len]
     push    rdi                      ; saved name_ptr
-    lea     rdi, [_iw_full_buf + rdx]
+    mov     rdi, qword [_iw_full_buf_ptr]
+    add     rdi, rdx
     mov     rsi, [rsp]               ; name_ptr
     mov     rdx, [rsp + 8]           ; name_len
     call    memcpy
@@ -228,12 +232,13 @@ find_recent_jsonl_in_cwd:
     ; NUL-terminate full_path at end
     mov     rax, qword [_iw_dir_len]
     add     rax, rsi
-    mov     byte [_iw_full_buf + rax], 0
+    mov     r9, qword [_iw_full_buf_ptr]
+    mov     byte [r9 + rax], 0
 
     ; stat full_path -> _iw_statbuf
     push    rdi
     push    rsi
-    lea     rdi, [_iw_full_buf]
+    mov     rdi, qword [_iw_full_buf_ptr]
     lea     rsi, [_iw_statbuf]
     call    sys_stat
     pop     rsi
@@ -272,7 +277,7 @@ find_recent_jsonl_in_cwd:
 
     ; assemble outbuf = dir_path + best_name
     mov     rdi, r12
-    lea     rsi, [_iw_dir_buf]
+    mov     rsi, qword [_iw_dir_buf_ptr]
     mov     rdx, qword [_iw_dir_len]
     call    memcpy
     mov     r14, rdx
@@ -334,14 +339,15 @@ find_jsonl_by_pid_start:
     mov     qword [_iw_pid_start], r8
 
     ; Build dir_path into _iw_dir_buf (same recipe as find_recent_jsonl_in_cwd)
-    lea     rdi, [_iw_dir_buf]
+    mov     rdi, qword [_iw_dir_buf_ptr]
     mov     esi, 1024
     call    home_dir
     test    r8, r8
     js      .pa_err
     mov     r14, rax
 
-    lea     rdi, [_iw_dir_buf + r14]
+    mov     rdi, qword [_iw_dir_buf_ptr]
+    add     rdi, r14
     lea     rsi, [_seg_proj2]
     mov     rdx, _seg_proj2_len
     call    memcpy
@@ -349,18 +355,20 @@ find_jsonl_by_pid_start:
 
     mov     rdi, rbx
     mov     rsi, rbp
-    lea     rdx, [_iw_dir_buf + r14]
+    mov     rdx, qword [_iw_dir_buf_ptr]
+    add     rdx, r14
     mov     rcx, 1024
     sub     rcx, r14
     sub     rcx, 64
     call    encode_cwd
     add     r14, rax
-    mov     byte [_iw_dir_buf + r14], '/'
+    mov     r9, qword [_iw_dir_buf_ptr]
+    mov     byte [r9 + r14], '/'
     inc     r14
-    mov     byte [_iw_dir_buf + r14], 0
+    mov     byte [r9 + r14], 0
     mov     qword [_iw_dir_len], r14
 
-    lea     rdi, [_iw_dir_buf]
+    mov     rdi, qword [_iw_dir_buf_ptr]
     xor     esi, esi
     xor     edx, edx
     call    sys_open
@@ -426,22 +434,24 @@ find_jsonl_by_pid_start:
     ; left in this loop — rbx..r15 are all in use).
     mov     qword [_iw_pa_name_ptr], rdi
     mov     qword [_iw_pa_name_len], rsi
-    mov     rdi, _iw_full_buf
-    lea     rsi, [_iw_dir_buf]
+    mov     rdi, qword [_iw_full_buf_ptr]
+    mov     rsi, qword [_iw_dir_buf_ptr]
     mov     rdx, qword [_iw_dir_len]
     call    memcpy
     mov     rdx, qword [_iw_dir_len]
-    lea     rdi, [_iw_full_buf + rdx]
+    mov     rdi, qword [_iw_full_buf_ptr]
+    add     rdi, rdx
     mov     rsi, qword [_iw_pa_name_ptr]
     mov     rdx, qword [_iw_pa_name_len]
     call    memcpy
 
     mov     rax, qword [_iw_dir_len]
     add     rax, qword [_iw_pa_name_len]
-    mov     byte [_iw_full_buf + rax], 0
+    mov     r9, qword [_iw_full_buf_ptr]
+    mov     byte [r9 + rax], 0
 
     ; jsonl_first_ts_epoch(full_path)
-    lea     rdi, [_iw_full_buf]
+    mov     rdi, qword [_iw_full_buf_ptr]
     call    jsonl_first_ts_epoch
     mov     r9, rax                  ; ts (only valid if rcx==0)
     test    rcx, rcx
@@ -474,7 +484,7 @@ find_jsonl_by_pid_start:
     je      .pa_err
 
     mov     rdi, r12
-    lea     rsi, [_iw_dir_buf]
+    mov     rsi, qword [_iw_dir_buf_ptr]
     mov     rdx, qword [_iw_dir_len]
     call    memcpy
     mov     r14, rdx
@@ -514,9 +524,10 @@ _seg_jsonl2_len = 6
 
 segment readable writeable
 align 8
-_iw_dir_buf      rb 1024
+; _iw_dir_buf and _iw_full_buf live in arena (ARENA_OFF_IW_DIR_BUF /
+; ARENA_OFF_IW_FULL_BUF). _iw_dir_buf_ptr / _iw_full_buf_ptr below hold
+; their runtime addresses.
 _iw_dir_len      rq 1
-_iw_full_buf     rb 1024
 _iw_dent_size    rq 1
 _iw_dent_cur     rq 1
 _iw_statbuf      rb 144
@@ -532,5 +543,9 @@ _iw_pa_best_name_len  rq 1
 _iw_pa_best_name      rb 256
 _iw_pa_name_ptr       rq 1
 _iw_pa_name_len       rq 1
+; Pointers populated at startup (arena_base + ARENA_OFF_IW_*_BUF) so we
+; don't carry 2 KB of zero-fill statics on disk.
+_iw_dir_buf_ptr   rq 1
+_iw_full_buf_ptr  rq 1
 _dbg_lf_iw        db 0x0A
 _dbg_sp_iw        db ' '
