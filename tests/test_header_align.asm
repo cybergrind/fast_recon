@@ -11,8 +11,14 @@ include '../src/common.inc'
 
 segment readable executable
 entry $
+    ; populate hdr_cols at runtime (it's a buffer now, not a literal)
+    lea     rdi, [hdr_cols]
+    mov     esi, HDR_BUF_CAP
+    call    build_header
+    mov     qword [hdr_cols_len], rax
+
     ; total width matches the sum of column widths
-    mov     eax, hdr_cols_len
+    mov     rax, qword [hdr_cols_len]
     assert_eq_n 1, rax, COL_TOTAL_W
 
     ; col 0 is "#"

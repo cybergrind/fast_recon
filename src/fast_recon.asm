@@ -38,6 +38,12 @@ entry $
     call    term_get_cols
     mov     dword [term_cols], eax
 
+    ; render the static column-header line into hdr_cols once
+    lea     rdi, [hdr_cols]
+    mov     esi, HDR_BUF_CAP
+    call    build_header
+    mov     qword [hdr_cols_len], rax
+
     ; --- terminal setup ---
     xor     edi, edi
     lea     rsi, [tsave]
@@ -414,7 +420,7 @@ redraw:
     call    term_move
     call    term_fg_turquoise
     lea     rdi, [hdr_cols]
-    mov     rsi, hdr_cols_len
+    mov     rsi, qword [hdr_cols_len]
     call    term_write_str
     call    term_fg_default
 
