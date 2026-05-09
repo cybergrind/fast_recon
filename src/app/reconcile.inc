@@ -1,29 +1,32 @@
 ; app/reconcile.inc — reconcile pane status and last-activity against the
-; JSONL file's mtime, the authoritative "is this session writing right now"
-; signal.
+; JSONL file's mtime.
 ;
-; Spinner detection in pane_status_from_buf can produce false positives
-; (a paragraph in the visible pane just happens to contain a glyph that
-; looks like a spinner). The mtime of the JSONL file Claude appends to is
-; a much stronger signal — if it hasn't been touched in FRESH_SECS, the
-; session is not writing.
+; Three bands of mtime age, each with a different rule. The middle band
+; exists because Claude can spend minutes generating without flushing the
+; JSONL (it appends the assistant turn at the end), so a strict "stale ⇒
+; idle" rule produces false negatives during long thinking turns.
+;
+;   age ≤ FRESH_SECS  ............... force WORKING, bump ts to mtime.
+;                                     (catches spinner false-negatives —
+;                                      file is being written so the session
+;                                      is definitely active.)
+;
+;   FRESH_SECS < age ≤ STALE_SECS ... trust the spinner classifier as-is,
+;                                     ts_epoch unchanged.
+;                                     (Claude is plausibly mid-turn.)
+;
+;   age > STALE_SECS  ............... flip WORKING → IDLE, ts_epoch unchanged.
+;                                     (long-stuck pane: spinner glyph
+;                                      caught in the buffer but the session
+;                                      is dead.)
 
 FRESH_SECS = 30
+STALE_SECS = 1800                        ; 30 min
 
 segment readable executable
 
 ; reconcile_status_last(rdi=row_ptr, rsi=mtime_or_neg, rdx=now_secs)
-;
 ;   rsi < 0 ⇒ no mtime available (no JSONL); leave row alone.
-;
-; Otherwise, with age = now - mtime:
-;   age <= FRESH_SECS  → status = WORKING; ts_epoch = max(ts_epoch, mtime).
-;   age >  FRESH_SECS  AND status == WORKING → status = IDLE; ts_epoch unchanged.
-;   age >  FRESH_SECS  AND status != WORKING → leave alone.
-;
-; The IDLE-flip on stale mtime corrects spinner-detection false positives:
-; if the file isn't being written, the pane isn't really working regardless
-; of what the visible pane buffer suggests.
 reconcile_status_last:
     test    rsi, rsi
     js      .ret                         ; no mtime → no change
@@ -31,17 +34,21 @@ reconcile_status_last:
     mov     rax, rdx
     sub     rax, rsi                     ; age = now - mtime
     cmp     rax, FRESH_SECS
-    ja      .stale
+    ja      .not_fresh
 
     ; fresh: force WORKING, bump ts_epoch up to mtime
     mov     qword [rdi + ROW_OFF_STATUS], STATUS_WORKING
-    mov     rax, qword [rdi + ROW_OFF_TS_EPOCH]
-    cmp     rsi, rax
+    mov     rcx, qword [rdi + ROW_OFF_TS_EPOCH]
+    cmp     rsi, rcx
     jbe     .ret
     mov     qword [rdi + ROW_OFF_TS_EPOCH], rsi
     ret
 
-.stale:
+.not_fresh:
+    cmp     rax, STALE_SECS
+    jbe     .ret                         ; middle band: trust spinner
+
+    ; very stale: only override WORKING → IDLE (can't be writing)
     mov     rax, qword [rdi + ROW_OFF_STATUS]
     cmp     rax, STATUS_WORKING
     jne     .ret

@@ -2,20 +2,13 @@
 ;
 ; reconcile_status_last(rdi=row_ptr, rsi=mtime_or_neg, rdx=now_secs)
 ;
-; Mutates row[STATUS] and row[TS_EPOCH] so the Status and Last columns
-; agree with the JSONL file's mtime, which is the authoritative "is this
-; session writing right now" signal.
+; Three bands keyed off age = now - mtime:
+;   age <= FRESH_SECS (30 s)             → WORKING, ts = max(ts, mtime)
+;   FRESH_SECS < age <= STALE_SECS (30m) → trust the spinner; no change
+;   age > STALE_SECS                     → flip WORKING → IDLE; ts unchanged
 ;
-; Rules:
-;   1. If mtime>=0 AND now-mtime <= FRESH_SECS:
-;        row.status   = STATUS_WORKING
-;        row.ts_epoch = max(row.ts_epoch, mtime)
-;   2. Else if mtime>=0 AND now-mtime > FRESH_SECS AND row.status==WORKING:
-;        row.status   = STATUS_IDLE   (spinner was a false positive)
-;        row.ts_epoch unchanged
-;   3. Else: no change.
-;
-; FRESH_SECS = 30.
+; Middle band exists because Claude can think silently for minutes during
+; a long generation; we don't want to flip those to Idle.
 
 format ELF64 executable 3
 include '../src/common.inc'
@@ -58,7 +51,25 @@ entry $
     mov     rcx, NOW - 10
     assert_eq_n 11, rax, rcx
 
-    ; --- case C: mtime stale + status WORKING → flip to IDLE, ts unchanged ---
+    ; --- case C: middle band (300 s stale) + Working → unchanged ---
+    ; Claude is plausibly mid-turn; we trust the spinner classifier.
+    lea     rdi, [row]
+    xor     esi, esi
+    mov     edx, ROW_BYTES
+    call    memset
+    mov     qword [row + ROW_OFF_STATUS], STATUS_WORKING
+    mov     qword [row + ROW_OFF_TS_EPOCH], NOW - 300
+    lea     rdi, [row]
+    mov     rsi, NOW - 300                                ; 5m stale
+    mov     rdx, NOW
+    call    reconcile_status_last
+    mov     rax, qword [row + ROW_OFF_STATUS]
+    assert_eq_n 20, rax, STATUS_WORKING                   ; spinner trusted
+    mov     rax, qword [row + ROW_OFF_TS_EPOCH]
+    mov     rcx, NOW - 300
+    assert_eq_n 21, rax, rcx
+
+    ; --- case C2: very stale (>STALE_SECS) + Working → flip to Idle ---
     lea     rdi, [row]
     xor     esi, esi
     mov     edx, ROW_BYTES
@@ -70,12 +81,12 @@ entry $
     mov     rdx, NOW
     call    reconcile_status_last
     mov     rax, qword [row + ROW_OFF_STATUS]
-    assert_eq_n 20, rax, STATUS_IDLE
+    assert_eq_n 22, rax, STATUS_IDLE
     mov     rax, qword [row + ROW_OFF_TS_EPOCH]
     mov     rcx, NOW - 3600
-    assert_eq_n 21, rax, rcx                              ; unchanged
+    assert_eq_n 23, rax, rcx                              ; unchanged
 
-    ; --- case D: mtime stale + status IDLE → unchanged ---
+    ; --- case D: very stale + status IDLE → unchanged ---
     lea     rdi, [row]
     xor     esi, esi
     mov     edx, ROW_BYTES
