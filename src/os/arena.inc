@@ -7,8 +7,9 @@
 ; Layout: one contiguous mmap chunk, sliced by fixed offsets.
 
 ARENA_OFF_OUT_BUF      = 0
-ARENA_OFF_ROW_DATA     = 65536          ; after 64 KB out_buf
-ARENA_OFF_ENV_BUF      = 65536 + 64*656 ; after row_data
+ARENA_OFF_ROW_DATA     = 65536                                   ; after 64 KB out_buf
+ARENA_OFF_PCACHE       = ARENA_OFF_ROW_DATA + 64*ROW_BYTES       ; per-pid stable-fields cache
+ARENA_OFF_ENV_BUF      = ARENA_OFF_PCACHE   + 64*PCACHE_BYTES
 ARENA_OFF_DENT_BUF     = ARENA_OFF_ENV_BUF + 8192
 ARENA_OFF_IW_DENT_BUF  = ARENA_OFF_DENT_BUF + 8192
 ARENA_OFF_CPS_OUT      = ARENA_OFF_IW_DENT_BUF + 8192

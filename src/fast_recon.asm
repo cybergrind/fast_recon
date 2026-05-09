@@ -12,7 +12,7 @@ include 'common.inc'
 
 OUT_BUF_BYTES = 65536
 MAX_PANES     = 64
-REFRESH_MS    = 800
+REFRESH_MS    = 200
 KEY_TICK_MS   = 100
 
 ; sum of visible column widths (kept fixed via right-pad in each cell)
@@ -254,6 +254,55 @@ refresh_panes:
     ; so two panes sharing a cwd don't collide on the same JSONL file).
     mov     dword [claimed_n], 0
 
+    ; build alive_pids[] from pane_recs and let pcache drop entries for
+    ; pids that no longer have a pane.
+    xor     ecx, ecx
+.alive_fill:
+    cmp     ecx, dword [n_panes]
+    jge     .alive_fill_done
+    mov     rax, rcx
+    imul    rax, PANE_REC_BYTES
+    mov     rax, qword [pane_recs + rax + PANE_OFF_PID]
+    mov     dword [alive_pids + rcx*4], eax
+    inc     ecx
+    jmp     .alive_fill
+.alive_fill_done:
+    lea     rdi, [alive_pids]
+    movsxd  rsi, dword [n_panes]
+    call    pcache_evict_missing
+
+    ; PRE-PASS: claim every cached pane's jsonl_path so cold misses below
+    ; won't collide with a warm pane that hasn't been visited yet.
+    xor     ebp, ebp
+.pre_claim_loop:
+    mov     ecx, dword [n_panes]
+    cmp     ebp, ecx
+    jge     .pre_claim_done
+    mov     rax, rbp
+    imul    rax, PANE_REC_BYTES
+    lea     r13, [pane_recs]
+    add     r13, rax
+    mov     rdi, qword [r13 + PANE_OFF_PID]
+    call    pcache_lookup
+    test    rax, rax
+    jz      .pre_claim_next
+    mov     r14, rax
+    mov     rcx, qword [r14 + PCACHE_OFF_JPATH_LEN]
+    test    rcx, rcx
+    jz      .pre_claim_next
+    push    rcx
+    lea     rdi, [jsonl_path]
+    lea     rsi, [r14 + PCACHE_OFF_JPATH]
+    mov     rdx, rcx
+    call    memcpy
+    pop     rcx
+    mov     byte [jsonl_path + rcx], 0
+    call    claim_jsonl_path
+.pre_claim_next:
+    inc     ebp
+    jmp     .pre_claim_loop
+.pre_claim_done:
+
     ; --- enrich every row ---
     xor     ebp, ebp
 .enrich_loop:
@@ -288,53 +337,104 @@ refresh_panes:
     call    status_with_hold
     mov     qword [r12 + ROW_OFF_STATUS], rax
 
-    ; cwd via /proc/{pid}/cwd
+    ; --- resolve stable identity (cwd / git / uuid / jsonl_path) via cache ---
     mov     rdi, qword [r13 + PANE_OFF_PID]
-    lea     rsi, [r12 + ROW_OFF_CWD]
+    call    pcache_lookup
+    test    rax, rax
+    jnz     .cache_hit
+    ; cold miss: allocate slot and run the heavy resolvers, populating the
+    ; slot. Subsequent ticks will read from cache.
+    mov     rdi, qword [r13 + PANE_OFF_PID]
+    call    pcache_alloc
+    mov     r14, rax
+
+    ; pid_cwd → slot+CWD; invalidate slot if it fails so we retry next tick
+    mov     rdi, qword [r13 + PANE_OFF_PID]
+    lea     rsi, [r14 + PCACHE_OFF_CWD]
     mov     edx, 256
     call    pid_cwd
     test    rcx, rcx
-    js      .skip_jsonl
-    mov     qword [r12 + ROW_OFF_CWD_LEN], rax
-    ; NUL-terminate cwd in place (we have room since outcap was 256 and len < 256)
-    mov     byte [r12 + ROW_OFF_CWD + rax], 0
+    jns     .cwd_ok
+    mov     qword [r14 + PCACHE_OFF_PID], 0
+    jmp     .copy_to_row
+.cwd_ok:
+    mov     qword [r14 + PCACHE_OFF_CWD_LEN], rax
+    mov     byte [r14 + PCACHE_OFF_CWD + rax], 0
 
-    ; git project info
-    lea     rdi, [r12 + ROW_OFF_CWD]
-    lea     rsi, [r12 + ROW_OFF_GIT]
+    ; git_project_info(slot+CWD) → slot+GIT
+    lea     rdi, [r14 + PCACHE_OFF_CWD]
+    lea     rsi, [r14 + PCACHE_OFF_GIT]
     call    git_project_info
 
-    ; sessionId via session_metafile (preferred)
+    ; pid_session_id → slot+UUID, then find_jsonl_path
     mov     rdi, qword [r13 + PANE_OFF_PID]
-    lea     rsi, [uuid_buf]
+    lea     rsi, [r14 + PCACHE_OFF_UUID]
     call    pid_session_id
     test    rcx, rcx
-    js      .fallback_jsonl
-    mov     r8, rax                  ; uuid_len
-    lea     rdi, [uuid_buf]
+    js      .cold_fallback_jsonl
+    mov     qword [r14 + PCACHE_OFF_UUID_LEN], rax
+    mov     r8, rax
+    lea     rdi, [r14 + PCACHE_OFF_UUID]
     mov     rsi, r8
     lea     rdx, [jsonl_path]
     mov     ecx, 1024
     call    find_jsonl_path
     test    r8, r8
-    jns     .have_jsonl
-.fallback_jsonl:
-    ; fallback: latest unclaimed *.jsonl in projects/{encoded_cwd}/
-    lea     rdi, [r12 + ROW_OFF_CWD]
-    mov     rsi, qword [r12 + ROW_OFF_CWD_LEN]
+    jns     .cold_got_jsonl
+.cold_fallback_jsonl:
+    lea     rdi, [r14 + PCACHE_OFF_CWD]
+    mov     rsi, qword [r14 + PCACHE_OFF_CWD_LEN]
     lea     rdx, [jsonl_path]
     mov     ecx, 1024
     lea     r8, [claimed_buf]
     movsxd  r9, dword [claimed_n]
     call    find_recent_jsonl_in_cwd
     test    r8, r8
-    js      .skip_jsonl
-.have_jsonl:
-    ; record this jsonl's stem (filename without ".jsonl") in the claimed
-    ; list so subsequent panes don't reuse it.
+    js      .copy_to_row
+.cold_got_jsonl:
+    ; rax = path_len; persist into slot and claim it
+    mov     qword [r14 + PCACHE_OFF_JPATH_LEN], rax
+    push    rax
+    lea     rdi, [r14 + PCACHE_OFF_JPATH]
+    lea     rsi, [jsonl_path]
+    mov     rdx, rax
+    call    memcpy
+    pop     rax
+    mov     byte [r14 + PCACHE_OFF_JPATH + rax], 0
     call    claim_jsonl_path
+    jmp     .copy_to_row
 
-    ; mmap + parse
+.cache_hit:
+    mov     r14, rax
+    ; populate static jsonl_path from cache for the parse step below
+    mov     rcx, qword [r14 + PCACHE_OFF_JPATH_LEN]
+    test    rcx, rcx
+    jz      .copy_to_row
+    push    rcx
+    lea     rdi, [jsonl_path]
+    lea     rsi, [r14 + PCACHE_OFF_JPATH]
+    mov     rdx, rcx
+    call    memcpy
+    pop     rcx
+    mov     byte [jsonl_path + rcx], 0
+
+.copy_to_row:
+    ; mirror cached fields into the per-tick row (cwd + git_info)
+    lea     rdi, [r12 + ROW_OFF_CWD]
+    lea     rsi, [r14 + PCACHE_OFF_CWD]
+    mov     edx, 256
+    call    memcpy
+    mov     rax, qword [r14 + PCACHE_OFF_CWD_LEN]
+    mov     qword [r12 + ROW_OFF_CWD_LEN], rax
+    lea     rdi, [r12 + ROW_OFF_GIT]
+    lea     rsi, [r14 + PCACHE_OFF_GIT]
+    mov     edx, 256
+    call    memcpy
+
+    ; refresh JSONL each tick (tokens + timestamp change)
+    mov     rcx, qword [r14 + PCACHE_OFF_JPATH_LEN]
+    test    rcx, rcx
+    jz      .skip_jsonl
     lea     rdi, [jsonl_path]
     call    read_file_all
     test    rcx, rcx
@@ -880,6 +980,7 @@ term_cols     rd 1
 claimed_n     rd 1
 align 8
 claimed_buf   rb MAX_PANES * CLAIM_SLOT
+alive_pids    rd MAX_PANES
 n_panes       rd 1
 sel           rd 1
 tick_remaining rd 1

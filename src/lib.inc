@@ -1,6 +1,11 @@
 ; lib.inc — aggregate of all fast_recon library modules.
 ; Tests and the main binary `include` this once after `format ELF64 executable 3`.
 
+; --- layouts: pure constants the rest of the code depends on. Loaded first
+;     so arena.inc can size its slices using ROW_BYTES / PCACHE_BYTES. ---
+include 'app/row_layout.inc'
+include 'app/cache_layout.inc'
+
 ; --- core: pure primitives, no OS ---
 include 'core/str.inc'
 include 'core/num.inc'
@@ -29,5 +34,5 @@ include 'app/status.inc'
 include 'app/status_hold.inc'
 include 'app/git_info.inc'
 include 'app/header.inc'
-include 'app/row_layout.inc'
 include 'app/order.inc'
+include 'app/pane_cache.inc'
