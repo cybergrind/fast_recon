@@ -408,29 +408,21 @@ redraw:
 
     call    term_clear
 
-    ; Title
+    ; Column header
     mov     edi, 1
     mov     esi, 1
     call    term_move
-    call    term_inverse
-    lea     rdi, [hdr_title]
-    mov     rsi, hdr_title_len
-    call    term_write_str
-    call    term_reset
-
-    ; Column header
-    mov     edi, 2
-    mov     esi, 1
-    call    term_move
+    call    term_fg_turquoise
     lea     rdi, [hdr_cols]
     mov     rsi, hdr_cols_len
     call    term_write_str
+    call    term_fg_default
 
     ; Empty?
     mov     eax, dword [n_panes]
     test    eax, eax
     jnz     .rows
-    mov     edi, 4
+    mov     edi, 3
     mov     esi, 3
     call    term_move
     lea     rdi, [msg_empty]
@@ -449,7 +441,7 @@ redraw:
     jge     .footer
 
     mov     rax, rbp
-    add     rax, 3
+    add     rax, 2
     mov     rdi, rax
     mov     esi, 1
     call    term_move
@@ -486,9 +478,9 @@ redraw:
     mov     eax, dword [n_panes]
     test    eax, eax
     jnz     .footer_have_rows
-    mov     eax, 1                   ; pretend 1 row so footer = 5
+    mov     eax, 1                   ; pretend 1 row so footer = 4
 .footer_have_rows:
-    add     eax, 4
+    add     eax, 3
     cdqe
     mov     rdi, rax
     mov     esi, 1
@@ -849,8 +841,6 @@ arg_F      db '-F', 0
 arg_fmt    db '#{pane_id}|#{session_name}|#{pane_pid}|#{pane_current_command}', 0
 argv_tmux  dq path_tmux, arg_lp, arg_a, arg_F, arg_fmt, 0
 
-hdr_title  db ' fast_recon — Claude Code Sessions '
-hdr_title_len = $ - hdr_title
 ;            "#   Session         Project                 Status     Model       Context        Last"
 hdr_cols   db '#   Session         Project                 Status     Model       Context        Last'
 hdr_cols_len = $ - hdr_cols

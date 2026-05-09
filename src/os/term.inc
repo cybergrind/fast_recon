@@ -148,6 +148,18 @@ term_select_bg_off:
     mov     rsi, _esc_sel_bg_off_len
     jmp     term_write_str
 
+; term_fg_turquoise -> CSI 38;5;51m (bright turquoise/aqua)
+term_fg_turquoise:
+    lea     rdi, [_esc_fg_turquoise]
+    mov     rsi, _esc_fg_turquoise_len
+    jmp     term_write_str
+
+; term_fg_default -> CSI 39m (default foreground, bg untouched)
+term_fg_default:
+    lea     rdi, [_esc_fg_default]
+    mov     rsi, _esc_fg_default_len
+    jmp     term_write_str
+
 ; term_get_cols() -> rax = terminal columns (defaults to 80 on failure)
 term_get_cols:
     sub     rsp, 16                  ; struct winsize { u16 row, col, xp, yp }
@@ -259,6 +271,10 @@ _esc_sel_bg_on  db 0x1B,'[48;5;238m'
 _esc_sel_bg_on_len = $ - _esc_sel_bg_on
 _esc_sel_bg_off db 0x1B,'[49m'
 _esc_sel_bg_off_len = $ - _esc_sel_bg_off
+_esc_fg_turquoise db 0x1B,'[38;5;51m'
+_esc_fg_turquoise_len = $ - _esc_fg_turquoise
+_esc_fg_default db 0x1B,'[39m'
+_esc_fg_default_len = $ - _esc_fg_default
 
 segment readable writeable
 _term_raw_buf  rb TERMIOS_BYTES
