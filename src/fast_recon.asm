@@ -12,20 +12,14 @@ include 'common.inc'
 
 OUT_BUF_BYTES = 65536
 MAX_PANES     = 64
-REFRESH_MS    = 2000
+REFRESH_MS    = 800
 KEY_TICK_MS   = 100
 
 ; sum of visible column widths (kept fixed via right-pad in each cell)
 ROW_VISIBLE_COLS = 4 + 17 + 25 + 11 + 13 + 15 + 12
 
-; --- per-row enriched record (kept parallel to pane_recs by index) ---
-ROW_OFF_CWD       = 0       ; 256 bytes of cwd (NUL-terminated)
-ROW_OFF_CWD_LEN   = 256
-ROW_OFF_INFO      = 264     ; 128 bytes of jsonl_info
-ROW_OFF_STATUS    = 392
-ROW_OFF_GIT       = 400     ; 256 bytes of git_info
-ROW_OFF_TS_EPOCH  = 656     ; q — parsed from INFO_OFF_TS_BUF, used as sort key
-ROW_BYTES         = 664
+; row layout (ROW_OFF_*, ROW_BYTES) lives in app/row_layout.inc, pulled in
+; via lib.inc at the bottom of this file.
 
 segment readable executable
 entry $
@@ -223,6 +217,10 @@ refresh_panes:
     push    r12
     push    r13
 
+    ; cache "now" for status-debounce + later relative-time formatting
+    call    now_epoch_secs
+    mov     qword [now_secs], rax
+
     lea     rdi, [path_tmux]
     lea     rsi, [argv_tmux]
     arena_lea rdx, ARENA_OFF_OUT_BUF
@@ -280,10 +278,14 @@ refresh_panes:
     mov     edx, ROW_BYTES
     call    memset
 
-    ; pane status via tmux capture-pane
+    ; pane status via tmux capture-pane, then debounce Working→Idle
     mov     rdi, qword [r13 + PANE_OFF_PANE_ID_PTR]
     mov     rsi, qword [r13 + PANE_OFF_PANE_ID_LEN]
     call    classify_pane_status
+    mov     rsi, rax                 ; raw status
+    mov     rdi, qword [r13 + PANE_OFF_PID]
+    mov     rdx, qword [now_secs]
+    call    status_with_hold
     mov     qword [r12 + ROW_OFF_STATUS], rax
 
     ; cwd via /proc/{pid}/cwd
@@ -367,24 +369,12 @@ refresh_panes:
     jmp     .enrich_loop
 
 .enrich_done:
-    ; build sort_keys[i] = row_data[i].ts_epoch ; then sort_idx_by_u64_desc.
-    xor     ecx, ecx
-.sk_loop:
-    cmp     ecx, dword [n_panes]
-    jge     .sk_done
-    mov     rax, rcx
-    imul    rax, ROW_BYTES
-    arena_lea r8, ARENA_OFF_ROW_DATA
-    add     r8, rax
-    mov     rax, qword [r8 + ROW_OFF_TS_EPOCH]
-    mov     qword [sort_keys + rcx*8], rax
-    inc     ecx
-    jmp     .sk_loop
-.sk_done:
-    lea     rdi, [sort_keys]
+    ; build sort_keys + sort_order from per-row ts_epoch
+    arena_lea rdi, ARENA_OFF_ROW_DATA
     movsxd  rsi, dword [n_panes]
     lea     rdx, [sort_order]
-    call    sort_idx_by_u64_desc
+    lea     rcx, [sort_keys]
+    call    compute_pane_order
 
     pop     r13
     pop     r12
