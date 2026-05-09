@@ -70,9 +70,8 @@ _psf_last_start  rq 1
 _psf_last_end    rq 1
 
 ; --- from app/status_hold.inc ---
-align 8
-_hold_pid rq HOLD_ENTRIES         ; pid; 0 means "free slot"
-_hold_ts  rq HOLD_ENTRIES         ; epoch seconds of last observed Working
+; _hold_pid (512 B) and _hold_ts (512 B) live in arena
+; (ARENA_OFF_HOLD_PID / ARENA_OFF_HOLD_TS).
 
 ; --- from core/num.inc ---
 ; 24-byte scratch buffer used by format_u64 (max u64 is 20 digits).

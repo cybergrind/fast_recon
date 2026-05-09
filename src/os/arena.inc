@@ -33,7 +33,10 @@ ARENA_OFF_IW_STATBUF   = ARENA_OFF_HDR_COLS + 128
 ARENA_OFF_IW_BEST_NAME = ARENA_OFF_IW_STATBUF + 144
 ARENA_OFF_IW_PA_BEST   = ARENA_OFF_IW_BEST_NAME + 256
 ARENA_OFF_GI_ARGV      = ARENA_OFF_IW_PA_BEST + 256               ; rq 8 (64 B)
-ARENA_BYTES            = ARENA_OFF_GI_ARGV + 64
+; Working→Idle hold table: HOLD_ENTRIES qwords each for pid + ts.
+ARENA_OFF_HOLD_PID     = ARENA_OFF_GI_ARGV + 64                   ; 512 B
+ARENA_OFF_HOLD_TS      = ARENA_OFF_HOLD_PID + 512                 ; 512 B
+ARENA_BYTES            = ARENA_OFF_HOLD_TS + 512
 
 
 ; arena_init() -> rax = 0/-errno.

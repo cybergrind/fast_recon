@@ -14,11 +14,11 @@ HOLD_ENTRIES    = 64
 
 ; status_hold_reset() — wipe the table (used by tests and TUI startup).
 status_hold_reset:
-    lea     rdi, [_hold_pid]
+    arena_lea rdi, ARENA_OFF_HOLD_PID
     xor     esi, esi
     mov     edx, HOLD_ENTRIES * 8
     call    memset
-    lea     rdi, [_hold_ts]
+    arena_lea rdi, ARENA_OFF_HOLD_TS
     xor     esi, esi
     mov     edx, HOLD_ENTRIES * 8
     call    memset
@@ -56,7 +56,8 @@ status_with_hold:
     test    rax, rax
     js      .pass_idle
     ; rax = slot index
-    mov     rcx, qword [_hold_ts + rax*8]
+    arena_lea rcx, ARENA_OFF_HOLD_TS
+    mov     rcx, qword [rcx + rax*8]
     mov     rdx, r14
     sub     rdx, rcx                 ; elapsed = now - last_working_at
     cmp     rdx, HOLD_SECS
@@ -74,9 +75,11 @@ status_with_hold:
     jns     .stamp_existing
     ; pid not yet tracked — find a free slot, else evict oldest
     call    _find_free_or_oldest
-    mov     qword [_hold_pid + rax*8], r12
+    arena_lea rcx, ARENA_OFF_HOLD_PID
+    mov     qword [rcx + rax*8], r12
 .stamp_existing:
-    mov     qword [_hold_ts + rax*8], r14
+    arena_lea rcx, ARENA_OFF_HOLD_TS
+    mov     qword [rcx + rax*8], r14
     mov     rax, STATUS_WORKING
 
 .epilogue:
@@ -91,10 +94,11 @@ status_with_hold:
 ; _find_slot — scan _hold_pid[] for r12. Returns index in rax, or -1 if absent.
 _find_slot:
     xor     ecx, ecx
+    arena_lea r11, ARENA_OFF_HOLD_PID
 .lp:
     cmp     ecx, HOLD_ENTRIES
     jae     .miss
-    cmp     qword [_hold_pid + rcx*8], r12
+    cmp     qword [r11 + rcx*8], r12
     je      .hit
     inc     ecx
     jmp     .lp
@@ -110,13 +114,16 @@ _find_slot:
 _find_free_or_oldest:
     xor     ecx, ecx
     xor     r8d, r8d                 ; oldest_idx = 0
-    mov     r9, qword [_hold_ts + 0] ; oldest_ts = ts[0]
+    arena_lea r11, ARENA_OFF_HOLD_PID
+    arena_lea rax, ARENA_OFF_HOLD_TS
+    mov     r9, qword [rax + 0]      ; oldest_ts = ts[0]
 .lp:
     cmp     ecx, HOLD_ENTRIES
     jae     .done
-    cmp     qword [_hold_pid + rcx*8], 0
+    cmp     qword [r11 + rcx*8], 0
     je      .free
-    mov     r10, qword [_hold_ts + rcx*8]
+    arena_lea rdx, ARENA_OFF_HOLD_TS
+    mov     r10, qword [rdx + rcx*8]
     cmp     r10, r9
     jae     .step
     mov     r9, r10

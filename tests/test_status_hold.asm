@@ -13,6 +13,7 @@ include '../src/common.inc'
 
 segment readable executable
 entry $
+    call    arena_init
     call    status_hold_reset
 
     ; --- 1. raw=Idle with no history → Idle ---
