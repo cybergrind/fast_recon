@@ -6,7 +6,6 @@
 ;   ok:  rax = bytes_read,  rdx = exit_status
 ;   err: rax = -errno (sign-bit set), rdx = unspecified
 
-segment readable executable
 
 ; --- helper: sys_pipe(rdi=int[2]) -> rax. uses SYS_pipe (22). ---
 ; --- helper: sys_close, sys_dup2, sys_fork, sys_execve, sys_wait4 are inline ---

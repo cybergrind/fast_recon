@@ -8,7 +8,6 @@
 ; All wrappers preserve callee-saved regs (the syscall instruction itself
 ; only clobbers rcx and r11, and we don't touch rbx/rbp/r12-r15).
 
-segment readable executable
 
 ; sys_open(rdi=path0, rsi=flags, rdx=mode) -> rax
 sys_open:

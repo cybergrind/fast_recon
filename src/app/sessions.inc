@@ -1,6 +1,5 @@
 ; app/sessions.inc — read ~/.claude/sessions/{pid}.json and related helpers.
 
-segment readable executable
 
 ; extract_session_id(rdi=buf, rsi=len, rdx=out) -> rax = uuid_len, rcx = 0/-1
 ; Locates "sessionId" at the top level of the JSON object in buf and copies
@@ -46,15 +45,6 @@ extract_session_id:
     pop     rbx
     ret
 
-segment readable
-_skey_session_id     db 'sessionId'
-_skey_session_id_len = $ - _skey_session_id
-_seg_dot_claude      db '/.claude/sessions/'
-_seg_dot_claude_len  = $ - _seg_dot_claude
-_seg_json_ext        db '.json', 0
-_seg_json_ext_len    = $ - _seg_json_ext - 1
-
-segment readable executable
 
 ; build_session_path(rdi=pid, rsi=outbuf, rdx=cap) -> rax = len, rcx = 0/-1
 ; Builds "${HOME}/.claude/sessions/{pid}.json", NUL-terminated. Caller's

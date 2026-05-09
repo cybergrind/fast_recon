@@ -43,17 +43,8 @@ entry $
     test    rax, rax
     js      .die_noterm
 
-    ; cache absolute addresses of arena slices that are referenced from
-    ; many places. Storing 8-byte pointers in the static section is cheaper
-    ; than carrying multi-KB zero-fill arrays on disk.
-    arena_lea rax, ARENA_OFF_IW_DIR_BUF
-    mov     qword [_iw_dir_buf_ptr], rax
-    arena_lea rax, ARENA_OFF_IW_FULL_BUF
-    mov     qword [_iw_full_buf_ptr], rax
-    arena_lea rax, ARENA_OFF_GI_BUF
-    mov     qword [_gi_buf_ptr], rax
-    arena_lea rax, ARENA_OFF_GI_ARGV
-    mov     qword [_gi_argv_ptr], rax
+    ; (arena_init populates the runtime arena pointers _iw_dir_buf_ptr /
+    ;  _iw_full_buf_ptr / _gi_buf_ptr / _gi_argv_ptr.)
 
     ; cache terminal width for row-padding (highlight bg fills)
     call    term_get_cols
@@ -1144,3 +1135,5 @@ in_raw        db 0
 align 8
 tsave         rb TERMIOS_BYTES
 now_secs      rq 1
+; Note: data and state from all .inc files are consolidated and
+; included near the top of lib.inc.

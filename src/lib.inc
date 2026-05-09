@@ -38,3 +38,12 @@ include 'app/order.inc'
 include 'app/pane_cache.inc'
 include 'app/jsonl_first_ts.inc'
 include 'app/reconcile.inc'
+
+; All read-only and writeable data from every .inc file is consolidated
+; here so FASM emits one program header per attribute set instead of
+; one per `segment` directive.
+segment readable
+include '_data.inc'
+
+segment readable writeable
+include '_state.inc'

@@ -35,7 +35,6 @@ ARENA_OFF_IW_PA_BEST   = ARENA_OFF_IW_BEST_NAME + 256
 ARENA_OFF_GI_ARGV      = ARENA_OFF_IW_PA_BEST + 256               ; rq 8 (64 B)
 ARENA_BYTES            = ARENA_OFF_GI_ARGV + 64
 
-segment readable executable
 
 ; arena_init() -> rax = 0/-errno.
 ; mmap a single anonymous read-write region big enough for every "big buffer",
@@ -54,6 +53,16 @@ arena_init:
     cmp     rax, -4096
     ja      .err
     mov     qword [arena_base], rax
+    ; Populate runtime pointers for the few buffers accessed via static
+    ; cached addresses (see _state.inc).
+    arena_lea rcx, ARENA_OFF_IW_DIR_BUF
+    mov     qword [_iw_dir_buf_ptr], rcx
+    arena_lea rcx, ARENA_OFF_IW_FULL_BUF
+    mov     qword [_iw_full_buf_ptr], rcx
+    arena_lea rcx, ARENA_OFF_GI_BUF
+    mov     qword [_gi_buf_ptr], rcx
+    arena_lea rcx, ARENA_OFF_GI_ARGV
+    mov     qword [_gi_argv_ptr], rcx
 .ok:
     xor     eax, eax
     ret
@@ -66,6 +75,3 @@ arena_addr:
     add     rax, rdi
     ret
 
-segment readable writeable
-align 8
-arena_base rq 1

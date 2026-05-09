@@ -4,7 +4,6 @@
 STAT_SIZE_OFFSET = 48
 STAT_BUF_BYTES   = 144
 
-segment readable executable
 
 ; read_file_all(rdi=path0)
 ;   ok:  rax = ptr (mmap'd MAP_PRIVATE | PROT_READ, page-aligned),

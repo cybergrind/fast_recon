@@ -1,6 +1,5 @@
 ; num.inc — integer parsing and formatting.
 
-segment readable executable
 
 ; parse_u64(rdi=ptr, rsi=len) -> rax=value, rdx=bytes consumed.
 ; Reads decimal digits while index < len AND byte in '0'..'9'. Stops on first
@@ -52,8 +51,3 @@ format_u64:
     pop     rdi
     ret
 
-segment readable writeable
-; 24-byte scratch buffer used by format_u64 (max u64 is 20 digits).
-align 16
-_fmt_tmp:     db 24 dup (?)
-_fmt_tmp_end:

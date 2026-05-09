@@ -10,7 +10,6 @@
 
 PCACHE_ENTRIES = 64
 
-segment readable executable
 
 ; pcache_reset() — wipe all slots (used by tests + at startup).
 pcache_reset:

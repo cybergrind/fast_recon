@@ -13,7 +13,6 @@ STATUS_WORKING = 1
 STATUS_INPUT   = 2
 STATUS_IDLE    = 3
 
-segment readable executable
 
 ; is_spinner_utf8(rdi=ptr, rsi=remaining_bytes) -> rax: 1 if the prefix at
 ; ptr decodes to one of the Claude Code activity glyphs:
@@ -275,22 +274,3 @@ classify_pane_status:
     pop     rbx
     ret
 
-segment readable
-_cps_path_tmux        db '/usr/bin/tmux', 0
-_cps_arg_cap          db 'capture-pane', 0
-_cps_arg_t            db '-t', 0
-_cps_arg_p            db '-p', 0
-
-_psf_marker_esc       db 'Esc to cancel'
-_psf_marker_esc_len   = $ - _psf_marker_esc
-_psf_ellipsis         db 0xE2, 0x80, 0xA6     ; "…" U+2026
-_psf_chevron          db 0xE2, 0x9D, 0xAF     ; "❯" U+276F
-
-_CPS_OUT_BYTES = 16384
-
-segment readable writeable
-align 8
-_cps_id_buf      rb 32
-_cps_argv        rq 6
-_psf_last_start  rq 1
-_psf_last_end    rq 1

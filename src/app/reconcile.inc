@@ -23,7 +23,6 @@
 FRESH_SECS = 30
 STALE_SECS = 1800                        ; 30 min
 
-segment readable executable
 
 ; reconcile_status_last(rdi=row_ptr, rsi=mtime_or_neg, rdx=now_secs)
 ;   rsi < 0 ⇒ no mtime available (no JSONL); leave row alone.

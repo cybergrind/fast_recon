@@ -20,7 +20,6 @@ DENTBUF_BYTES   = 8192
 
 PATH_FRAME = 1024
 
-segment readable executable
 
 find_jsonl_path:
     push    rbx
@@ -187,15 +186,3 @@ find_jsonl_path:
     pop     rbx
     ret
 
-segment readable
-_seg_proj    db '/.claude/projects/'
-_seg_proj_len = $ - _seg_proj
-_seg_jsonl   db '.jsonl'
-_seg_jsonl_len = $ - _seg_jsonl
-
-segment readable writeable
-align 8
-_dent_size   rq 1
-_dent_cur    rq 1
-_cand_name   rq 1
-_cand_pos    rq 1

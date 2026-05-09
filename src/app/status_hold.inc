@@ -11,7 +11,6 @@
 HOLD_SECS       = 30
 HOLD_ENTRIES    = 64
 
-segment readable executable
 
 ; status_hold_reset() — wipe the table (used by tests and TUI startup).
 status_hold_reset:
@@ -132,7 +131,3 @@ _find_free_or_oldest:
     mov     eax, r8d
     ret
 
-segment readable writeable
-align 8
-_hold_pid rq HOLD_ENTRIES         ; pid; 0 means "free slot"
-_hold_ts  rq HOLD_ENTRIES         ; epoch seconds of last observed Working

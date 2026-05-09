@@ -19,7 +19,6 @@ INFO_OFF_MODEL_BUF  = 32
 INFO_OFF_TS_BUF     = 96
 INFO_BYTES          = 128
 
-segment readable executable
 
 ; _find_key_in(start, end, key_ptr, key_len) -> rax/rdx/rcx
 ; Convenience: call json_find_key with (start, end, key, len). Same return
@@ -388,37 +387,3 @@ _strstr:
     pop     rbx
     ret
 
-segment readable
-_skey_type             db 'type'
-_skey_type_len         = $ - _skey_type
-_skey_message          db 'message'
-_skey_message_len      = $ - _skey_message
-_skey_model            db 'model'
-_skey_model_len        = $ - _skey_model
-_skey_usage            db 'usage'
-_skey_usage_len        = $ - _skey_usage
-_skey_timestamp        db 'timestamp'
-_skey_timestamp_len    = $ - _skey_timestamp
-_skey_input            db 'input_tokens'
-_skey_input_len        = $ - _skey_input
-_skey_output           db 'output_tokens'
-_skey_output_len       = $ - _skey_output
-_skey_cache_create     db 'cache_creation_input_tokens'
-_skey_cache_create_len = $ - _skey_cache_create
-_skey_cache_read       db 'cache_read_input_tokens'
-_skey_cache_read_len   = $ - _skey_cache_read
-_str_assistant         db 'assistant'
-_str_assistant_len     = $ - _str_assistant
-_str_user              db 'user'
-_str_user_len          = $ - _str_user
-_str_system            db 'system'
-_str_system_len        = $ - _str_system
-_str_synthetic         db '<synthetic>'
-_str_synthetic_len     = $ - _str_synthetic
-
-segment readable writeable
-align 8
-_msg_start    rq 1
-_msg_end      rq 1
-_usage_start  rq 1
-_usage_end    rq 1

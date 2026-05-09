@@ -14,7 +14,6 @@ PANE_OFF_CMD_LEN     = 32
 PANE_OFF_PANE_ID_PTR = 40
 PANE_OFF_PANE_ID_LEN = 48
 
-segment readable executable
 
 ; _split_field_pipe(rdi=cursor, rsi=line_end) -> rax = pos_of_pipe (or rsi).
 _split_field_pipe:
@@ -155,16 +154,3 @@ parse_claude_panes:
     pop     rbx
     ret
 
-segment readable
-str_claude db 'claude'
-
-segment readable writeable
-align 8
-_pi_pane_id_ptr rq 1
-_pi_pane_id_len rq 1
-_pi_name_ptr    rq 1
-_pi_name_len    rq 1
-_pi_pid_ptr     rq 1
-_pi_pid_len     rq 1
-_pi_cmd_ptr     rq 1
-_pi_pid_val     rq 1

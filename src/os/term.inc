@@ -1,6 +1,5 @@
 ; term.inc — terminal raw mode + ANSI escapes + key reader + signal sender.
 
-segment readable executable
 
 ; ioctl(rdi=fd, rsi=req, rdx=arg) -> rax
 sys_ioctl:
@@ -277,30 +276,3 @@ read_key:
     pop     r12
     ret
 
-segment readable
-_esc_clear     db 0x1B,'[2J',0x1B,'[H'
-_esc_clear_len = $ - _esc_clear
-_esc_alt_on    db 0x1B,'[?1049h'
-_esc_alt_on_len = $ - _esc_alt_on
-_esc_alt_off   db 0x1B,'[?1049l'
-_esc_alt_off_len = $ - _esc_alt_off
-_esc_cur_hide  db 0x1B,'[?25l'
-_esc_cur_hide_len = $ - _esc_cur_hide
-_esc_cur_show  db 0x1B,'[?25h'
-_esc_cur_show_len = $ - _esc_cur_show
-_esc_inv       db 0x1B,'[7m'
-_esc_inv_len   = $ - _esc_inv
-_esc_reset     db 0x1B,'[0m'
-_esc_reset_len = $ - _esc_reset
-_esc_sel_bg_on  db 0x1B,'[48;5;238m'
-_esc_sel_bg_on_len = $ - _esc_sel_bg_on
-_esc_sel_bg_off db 0x1B,'[49m'
-_esc_sel_bg_off_len = $ - _esc_sel_bg_off
-_esc_fg_turquoise db 0x1B,'[38;5;51m'
-_esc_fg_turquoise_len = $ - _esc_fg_turquoise
-_esc_fg_default db 0x1B,'[39m'
-_esc_fg_default_len = $ - _esc_fg_default
-
-segment readable writeable
-_term_raw_buf  rb TERMIOS_BYTES
-_move_buf      rb 32

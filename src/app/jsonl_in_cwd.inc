@@ -5,7 +5,6 @@
 STAT_MTIME_OFFSET = 88       ; struct stat.st_mtime.tv_sec (s64)
 STAT_MTIME_NS_OFFSET = 96    ; struct stat.st_mtime.tv_nsec (s64)
 
-segment readable executable
 
 ; encode_cwd(rdi=src, rsi=src_len, rdx=dst, rcx=cap) -> rax = len
 encode_cwd:
@@ -518,34 +517,3 @@ find_jsonl_by_pid_start:
     pop     rbx
     ret
 
-segment readable
-_seg_proj2      db '/.claude/projects/'
-_seg_proj2_len  = $ - _seg_proj2
-_seg_jsonl2     db '.jsonl'
-_seg_jsonl2_len = 6
-
-segment readable writeable
-align 8
-; _iw_dir_buf and _iw_full_buf live in arena (ARENA_OFF_IW_DIR_BUF /
-; ARENA_OFF_IW_FULL_BUF). _iw_dir_buf_ptr / _iw_full_buf_ptr below hold
-; their runtime addresses.
-_iw_dir_len      rq 1
-_iw_dent_size    rq 1
-_iw_dent_cur     rq 1
-; statbuf, best_name, pa_best_name now in arena (ARENA_OFF_IW_*).
-_iw_best_mtime    rq 1
-_iw_best_mtime_ns rq 1
-_iw_best_name_len rq 1
-_iw_claimed_buf   rq 1
-_iw_claimed_n     rq 1
-_iw_pid_start         rq 1
-_iw_pa_best_delta     rq 1
-_iw_pa_best_name_len  rq 1
-_iw_pa_name_ptr       rq 1
-_iw_pa_name_len       rq 1
-; Pointers populated at startup (arena_base + ARENA_OFF_IW_*_BUF) so we
-; don't carry 2 KB of zero-fill statics on disk.
-_iw_dir_buf_ptr   rq 1
-_iw_full_buf_ptr  rq 1
-_dbg_lf_iw        db 0x0A
-_dbg_sp_iw        db ' '

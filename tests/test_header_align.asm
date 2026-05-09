@@ -11,8 +11,10 @@ include '../src/common.inc'
 
 segment readable executable
 entry $
-    ; populate hdr_cols at runtime (it's a buffer now, not a literal)
-    lea     rdi, [hdr_cols]
+    call    arena_init
+    ; populate hdr_cols at runtime (lives in arena now)
+    arena_lea r12, ARENA_OFF_HDR_COLS
+    mov     rdi, r12
     mov     esi, HDR_BUF_CAP
     call    build_header
     mov     qword [hdr_cols_len], rax
@@ -22,43 +24,43 @@ entry $
     assert_eq_n 1, rax, COL_TOTAL_W
 
     ; col 0 is "#"
-    movzx   eax, byte [hdr_cols + COL_NUM_OFF]
+    movzx   eax, byte [r12 + COL_NUM_OFF]
     assert_eq_n 2, rax, '#'
 
     ; col 4: "Session"
-    movzx   eax, byte [hdr_cols + COL_SESSION_OFF]
+    movzx   eax, byte [r12 + COL_SESSION_OFF]
     assert_eq_n 10, rax, 'S'
-    movzx   eax, byte [hdr_cols + COL_SESSION_OFF - 1]
+    movzx   eax, byte [r12 + COL_SESSION_OFF - 1]
     assert_eq_n 11, rax, ' '
 
     ; col 21: "Project"
-    movzx   eax, byte [hdr_cols + COL_PROJECT_OFF]
+    movzx   eax, byte [r12 + COL_PROJECT_OFF]
     assert_eq_n 20, rax, 'P'
-    movzx   eax, byte [hdr_cols + COL_PROJECT_OFF - 1]
+    movzx   eax, byte [r12 + COL_PROJECT_OFF - 1]
     assert_eq_n 21, rax, ' '
 
     ; col 46: "Status"
-    movzx   eax, byte [hdr_cols + COL_STATUS_OFF]
+    movzx   eax, byte [r12 + COL_STATUS_OFF]
     assert_eq_n 30, rax, 'S'
-    movzx   eax, byte [hdr_cols + COL_STATUS_OFF - 1]
+    movzx   eax, byte [r12 + COL_STATUS_OFF - 1]
     assert_eq_n 31, rax, ' '
 
     ; col 57: "Model"
-    movzx   eax, byte [hdr_cols + COL_MODEL_OFF]
+    movzx   eax, byte [r12 + COL_MODEL_OFF]
     assert_eq_n 40, rax, 'M'
-    movzx   eax, byte [hdr_cols + COL_MODEL_OFF - 1]
+    movzx   eax, byte [r12 + COL_MODEL_OFF - 1]
     assert_eq_n 41, rax, ' '
 
     ; col 70: "Context"
-    movzx   eax, byte [hdr_cols + COL_CONTEXT_OFF]
+    movzx   eax, byte [r12 + COL_CONTEXT_OFF]
     assert_eq_n 50, rax, 'C'
-    movzx   eax, byte [hdr_cols + COL_CONTEXT_OFF - 1]
+    movzx   eax, byte [r12 + COL_CONTEXT_OFF - 1]
     assert_eq_n 51, rax, ' '
 
     ; col 85: "Last"
-    movzx   eax, byte [hdr_cols + COL_LAST_OFF]
+    movzx   eax, byte [r12 + COL_LAST_OFF]
     assert_eq_n 60, rax, 'L'
-    movzx   eax, byte [hdr_cols + COL_LAST_OFF - 1]
+    movzx   eax, byte [r12 + COL_LAST_OFF - 1]
     assert_eq_n 61, rax, ' '
 
     test_pass

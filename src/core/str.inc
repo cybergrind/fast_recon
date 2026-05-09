@@ -7,7 +7,6 @@
 ;
 ; Procs in this file are only allowed to clobber: rax, rcx, rdx, rsi, rdi, r8-r11.
 
-segment readable executable
 
 ; memcpy(rdi=dst, rsi=src, rdx=len) -> rax = dst (mimic libc).
 ; Forward copy; caller must ensure regions don't overlap dst > src by < len.

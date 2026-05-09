@@ -1,6 +1,5 @@
 ; app/format_tokens.inc — "Nk / Mk" or "Nk / 1M" formatting for Context col.
 
-segment readable executable
 
 ; format_tokens(rdi=outbuf, rsi=cap, rdx=used, rcx=window) -> rax = len.
 format_tokens:

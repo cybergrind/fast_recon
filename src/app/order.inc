@@ -4,7 +4,6 @@
 ; module (fast_recon.asm and the unit tests both declare them before
 ; pulling in lib.inc).
 
-segment readable executable
 
 ; compute_pane_order(rdi=row_data_base, rsi=n, rdx=order_out, rcx=keys_scratch)
 ;   Fills keys_scratch[i] ← row_data[i].ts_epoch (u64), then runs

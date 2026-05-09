@@ -3,16 +3,6 @@
 ; Inputs we accept: "YYYY-MM-DDTHH:MM:SS[.fff]Z" — at least 19 bytes; extra
 ; bytes (sub-seconds, timezone) are ignored.
 
-segment readable
-
-; cumulative days at start of each month (non-leap, leap)
-align 4
-_month_off_normal:
-    dd  0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334
-_month_off_leap:
-    dd  0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335
-
-segment readable executable
 
 ; _read_uint(rdi=ptr, rsi=ndigits) -> rax = value
 ; reads exactly ndigits decimal digits, no validation.

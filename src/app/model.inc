@@ -3,58 +3,6 @@
 ; Layout: a static table of {len, id_ptr, display_len, display_ptr, window_lo, window_hi}.
 ; We keep it tiny — only the few model ids we actually surface.
 
-segment readable
-
-_m_opus_47       db 'claude-opus-4-7'
-_m_opus_47_len   = $ - _m_opus_47
-_d_opus_47       db 'Opus 4.7'
-_d_opus_47_len   = $ - _d_opus_47
-
-_m_opus_46       db 'claude-opus-4-6'
-_m_opus_46_len   = $ - _m_opus_46
-_d_opus_46       db 'Opus 4.6'
-_d_opus_46_len   = $ - _d_opus_46
-
-_m_sonnet_46     db 'claude-sonnet-4-6'
-_m_sonnet_46_len = $ - _m_sonnet_46
-_d_sonnet_46     db 'Sonnet 4.6'
-_d_sonnet_46_len = $ - _d_sonnet_46
-
-_m_haiku_45      db 'claude-haiku-4-5-20251001'
-_m_haiku_45_len  = $ - _m_haiku_45
-_d_haiku_45      db 'Haiku 4.5'
-_d_haiku_45_len  = $ - _d_haiku_45
-
-_m_sonnet_45     db 'claude-sonnet-4-5-20250514'
-_m_sonnet_45_len = $ - _m_sonnet_45
-_d_sonnet_45     db 'Sonnet 4.5'
-_d_sonnet_45_len = $ - _d_sonnet_45
-
-_m_opus_4        db 'claude-opus-4-20250514'
-_m_opus_4_len    = $ - _m_opus_4
-_d_opus_4        db 'Opus 4'
-_d_opus_4_len    = $ - _d_opus_4
-
-_m_sonnet_4      db 'claude-sonnet-4-20250514'
-_m_sonnet_4_len  = $ - _m_sonnet_4
-_d_sonnet_4      db 'Sonnet 4'
-_d_sonnet_4_len  = $ - _d_sonnet_4
-
-; record: id_ptr q, id_len q, disp_ptr q, disp_len q, window q  -> 40 bytes
-align 8
-_model_table:
-    dq _m_opus_47,    _m_opus_47_len,    _d_opus_47,    _d_opus_47_len,    1000000
-    dq _m_opus_46,    _m_opus_46_len,    _d_opus_46,    _d_opus_46_len,    1000000
-    dq _m_sonnet_46,  _m_sonnet_46_len,  _d_sonnet_46,  _d_sonnet_46_len,  200000
-    dq _m_haiku_45,   _m_haiku_45_len,   _d_haiku_45,   _d_haiku_45_len,   200000
-    dq _m_sonnet_45,  _m_sonnet_45_len,  _d_sonnet_45,  _d_sonnet_45_len,  200000
-    dq _m_opus_4,     _m_opus_4_len,     _d_opus_4,     _d_opus_4_len,     200000
-    dq _m_sonnet_4,   _m_sonnet_4_len,   _d_sonnet_4,   _d_sonnet_4_len,   200000
-_model_table_end:
-
-_MODEL_REC_BYTES = 40
-
-segment readable executable
 
 ; _model_lookup(rdi=id, rsi=id_len) -> rax = ptr to record, or 0 if not found.
 _model_lookup:

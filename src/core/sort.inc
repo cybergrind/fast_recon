@@ -1,6 +1,5 @@
 ; core/sort.inc — small sort helpers.
 
-segment readable executable
 
 ; sort_idx_by_u64_desc(rdi=keys, rsi=n, rdx=order_out)
 ;   Fills order_out[0..n) with a permutation of indices such that

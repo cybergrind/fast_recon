@@ -1,6 +1,5 @@
 ; proc_paths.inc — /proc/{pid}/* helpers and small path-builder utilities.
 
-segment readable executable
 
 ; pid_cwd(rdi=pid, rsi=outbuf, rdx=outcap) -> rax = len, rcx = 0 or -errno.
 ; Builds "/proc/{pid}/cwd" and readlinks it into outbuf. NO trailing NUL —
@@ -442,7 +441,3 @@ _pd_comm_is_claude:
     pop     rbx
     ret
 
-segment readable
-_pp_proc_stat_path db '/proc/stat', 0
-
-; _pp_scratch lives in arena (ARENA_OFF_PP_SCRATCH).

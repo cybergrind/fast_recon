@@ -19,7 +19,6 @@ GIT_OFF_DIR_BUF   = 88
 GIT_OFF_BR_BUF    = 216
 GIT_INFO_BYTES    = 256
 
-segment readable executable
 
 ; _trim_lf(rdi=ptr, rsi=len) -> rax = trimmed_len.
 ; Drop trailing CR/LF/whitespace.
@@ -226,19 +225,3 @@ git_project_info:
     pop     rbx
     ret
 
-segment readable
-_gi_path_git     db '/usr/bin/git', 0
-_gi_arg_C        db '-C', 0
-_gi_arg_revparse db 'rev-parse', 0
-_gi_arg_toplevel db '--show-toplevel', 0
-_gi_arg_abbrev   db '--abbrev-ref', 0
-_gi_arg_head     db 'HEAD', 0
-
-_GI_BUF_BYTES = 4096
-
-segment readable writeable
-align 8
-; _gi_argv (64 B) and _gi_buf (4 KB) live in the arena; these pointers
-; are populated at startup.
-_gi_argv_ptr rq 1
-_gi_buf_ptr  rq 1

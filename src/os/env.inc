@@ -5,7 +5,6 @@
 
 _env_buf_cap = 8192
 
-segment readable executable
 
 ; _env_load() -> rax = 0 ok / -errno.
 ; Idempotent: only reads /proc/self/environ on the first invocation.
@@ -155,6 +154,3 @@ home_dir:
 _path_environ db '/proc/self/environ', 0
 _str_HOME     db 'HOME'
 
-segment readable writeable
-_env_len     rq 1
-_env_loaded  rd 1

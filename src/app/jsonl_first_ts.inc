@@ -8,7 +8,6 @@
 JFT_BUF_BYTES  = 4096
 JFT_MAX_LINES  = 32
 
-segment readable executable
 
 ; jsonl_first_ts_epoch(rdi=path0) -> rax = epoch_secs, rcx = 0/-errno
 jsonl_first_ts_epoch:
@@ -110,6 +109,3 @@ jsonl_first_ts_epoch:
     pop     rbx
     ret
 
-segment readable
-_jft_key_ts     db 'timestamp'
-_jft_key_ts_len = $ - _jft_key_ts

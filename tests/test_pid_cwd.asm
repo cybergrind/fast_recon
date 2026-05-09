@@ -8,6 +8,7 @@ include '../src/common.inc'
 
 segment readable executable
 entry $
+    call    arena_init
     ; -- reference: /proc/self/cwd via direct readlink --
     lea     rdi, [path_self_cwd]
     lea     rsi, [refbuf]

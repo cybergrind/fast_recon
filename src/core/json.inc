@@ -6,7 +6,6 @@
 ;
 ; All entry points take a half-open [p, end) byte range and return rax = new p.
 
-segment readable executable
 
 ; json_skip_ws(rdi=p, rsi=end) -> rax = new_p
 ; ASCII whitespace: space, tab, CR, LF.
