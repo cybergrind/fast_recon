@@ -443,29 +443,22 @@ refresh_panes:
     test    r8, r8
     jns     .resolve_got
 .resolve_fallback:
-    ; pid-anchored: when {PID}.json is missing, match a JSONL whose first-line
-    ; timestamp lines up with the pid's wall-clock start time. This is a
-    ; pid-keyed link that doesn't depend on Claude Code writing session files.
+    ; Pid-anchored fallback: when {PID}.json is missing, match a JSONL
+    ; whose earliest line timestamp lines up with the pid's wall-clock
+    ; start time. We deliberately do NOT fall through to mtime-newest:
+    ; that would attribute an unrelated sibling JSONL to the pane and
+    ; show ghost data for new sessions. Better to leave Model/Context/
+    ; Last blank than to display a wrong pairing.
     mov     rdi, qword [r13 + PANE_OFF_PID]
     call    pid_start_epoch
     test    rcx, rcx
-    js      .resolve_mtime
+    js      .copy_to_row
     lea     rdi, [r14 + PCACHE_OFF_CWD]
     mov     rsi, qword [r14 + PCACHE_OFF_CWD_LEN]
     lea     rdx, [jsonl_path]
     mov     ecx, 1024
     mov     r8, rax                  ; pid_start_epoch
     call    find_jsonl_by_pid_start
-    test    r8, r8
-    jns     .resolve_got
-.resolve_mtime:
-    lea     rdi, [r14 + PCACHE_OFF_CWD]
-    mov     rsi, qword [r14 + PCACHE_OFF_CWD_LEN]
-    lea     rdx, [jsonl_path]
-    mov     ecx, 1024
-    lea     r8, [claimed_buf]
-    movsxd  r9, dword [claimed_n]
-    call    find_recent_jsonl_in_cwd
     test    r8, r8
     js      .copy_to_row
 .resolve_got:
