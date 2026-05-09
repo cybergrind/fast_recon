@@ -231,6 +231,28 @@ read_file_tail:
     pop     r12
     ret
 
+; path_mtime(rdi=path0) -> rax = st_mtime.tv_sec, rcx = 0/-errno.
+;   Thin wrapper around SYS_stat that exposes only the mtime field. Used to
+;   cross-check pane status against fresh JSONL writes.
+PATH_MTIME_BUF_BYTES = 144
+
+path_mtime:
+    sub     rsp, PATH_MTIME_BUF_BYTES
+    mov     rsi, rsp
+    mov     eax, SYS_stat
+    syscall
+    test    rax, rax
+    js      .err
+    mov     rax, [rsp + 88]              ; st_mtime.tv_sec
+    xor     ecx, ecx
+    add     rsp, PATH_MTIME_BUF_BYTES
+    ret
+.err:
+    mov     rcx, rax
+    xor     eax, eax
+    add     rsp, PATH_MTIME_BUF_BYTES
+    ret
+
 ; release_file(rdi=ptr, rsi=len) -> void.
 ; munmap that buffer; safe to call with len=0 (no-op).
 release_file:

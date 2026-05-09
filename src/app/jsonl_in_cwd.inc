@@ -304,6 +304,208 @@ find_recent_jsonl_in_cwd:
     pop     rbx
     ret
 
+; find_jsonl_by_pid_start(rdi=cwd, rsi=cwd_len, rdx=outbuf, rcx=cap,
+;                         r8=pid_start_epoch) -> rax = path_len, r8 = 0/-1
+;
+; Pid-anchored fallback. Lists $HOME/.claude/projects/<encoded_cwd>/*.jsonl,
+; reads each file's first-line "timestamp" via jsonl_first_ts_epoch, and
+; returns the path whose first-ts has the smallest |delta| from pid_start_epoch
+; with |delta| <= JSONL_PID_TOLERANCE (300 s).
+;
+; Doesn't take a claimed list — pid-anchoring is meant to disambiguate even
+; when several pids share a cwd; their start times differ enough that the
+; closest-match rule rarely collides. If two pids match the same JSONL
+; within tolerance, the caller's pcache pinning still keeps each pane stable
+; once the assignment is recorded.
+JSONL_PID_TOLERANCE = 300
+
+find_jsonl_by_pid_start:
+    push    rbx
+    push    rbp
+    push    r12
+    push    r13
+    push    r14
+    push    r15
+
+    mov     rbx, rdi                 ; cwd
+    mov     rbp, rsi                 ; cwd_len
+    mov     r12, rdx                 ; outbuf
+    mov     r13, rcx                 ; cap
+    mov     qword [_iw_pid_start], r8
+
+    ; Build dir_path into _iw_dir_buf (same recipe as find_recent_jsonl_in_cwd)
+    lea     rdi, [_iw_dir_buf]
+    mov     esi, 1024
+    call    home_dir
+    test    r8, r8
+    js      .pa_err
+    mov     r14, rax
+
+    lea     rdi, [_iw_dir_buf + r14]
+    lea     rsi, [_seg_proj2]
+    mov     rdx, _seg_proj2_len
+    call    memcpy
+    add     r14, _seg_proj2_len
+
+    mov     rdi, rbx
+    mov     rsi, rbp
+    lea     rdx, [_iw_dir_buf + r14]
+    mov     rcx, 1024
+    sub     rcx, r14
+    sub     rcx, 64
+    call    encode_cwd
+    add     r14, rax
+    mov     byte [_iw_dir_buf + r14], '/'
+    inc     r14
+    mov     byte [_iw_dir_buf + r14], 0
+    mov     qword [_iw_dir_len], r14
+
+    lea     rdi, [_iw_dir_buf]
+    xor     esi, esi
+    xor     edx, edx
+    call    sys_open
+    test    rax, rax
+    js      .pa_err
+    mov     r15, rax                 ; dir fd
+
+    mov     qword [_iw_pa_best_delta], JSONL_PID_TOLERANCE + 1
+    mov     qword [_iw_pa_best_name_len], 0
+
+.pa_refill:
+    mov     rdi, r15
+    arena_lea rsi, ARENA_OFF_IW_DENT_BUF
+    mov     edx, 8192
+    call    sys_getdents64
+    test    rax, rax
+    jle     .pa_scan_done
+    mov     qword [_iw_dent_size], rax
+    mov     qword [_iw_dent_cur], 0
+
+.pa_next_dent:
+    mov     rax, qword [_iw_dent_cur]
+    cmp     rax, qword [_iw_dent_size]
+    jae     .pa_refill
+    arena_lea r8, ARENA_OFF_IW_DENT_BUF
+    add     r8, rax
+    movzx   ecx, word [r8 + DENT_RECLEN_OFF]
+    add     rax, rcx
+    mov     qword [_iw_dent_cur], rax
+
+    lea     rdi, [r8 + DENT_NAME_OFF]
+    cmp     byte [rdi], '.'
+    je      .pa_next_dent
+
+    mov     rcx, rdi
+.pa_namelen:
+    cmp     byte [rcx], 0
+    je      .pa_got_name_len
+    inc     rcx
+    jmp     .pa_namelen
+.pa_got_name_len:
+    mov     rsi, rcx
+    sub     rsi, rdi                 ; name_len
+    cmp     rsi, _seg_jsonl2_len
+    jbe     .pa_next_dent
+
+    ; tail == ".jsonl"?
+    push    rdi
+    push    rsi
+    lea     rcx, [rdi + rsi]
+    sub     rcx, _seg_jsonl2_len
+    mov     rdi, rcx
+    lea     rsi, [_seg_jsonl2]
+    mov     rdx, _seg_jsonl2_len
+    call    memcmp
+    pop     rsi
+    pop     rdi
+    test    rax, rax
+    jnz     .pa_next_dent
+
+    ; build full path = dir_path + name into _iw_full_buf
+    ; stash name_ptr / name_len in static slots (no good free callee-saved
+    ; left in this loop — rbx..r15 are all in use).
+    mov     qword [_iw_pa_name_ptr], rdi
+    mov     qword [_iw_pa_name_len], rsi
+    mov     rdi, _iw_full_buf
+    lea     rsi, [_iw_dir_buf]
+    mov     rdx, qword [_iw_dir_len]
+    call    memcpy
+    mov     rdx, qword [_iw_dir_len]
+    lea     rdi, [_iw_full_buf + rdx]
+    mov     rsi, qword [_iw_pa_name_ptr]
+    mov     rdx, qword [_iw_pa_name_len]
+    call    memcpy
+
+    mov     rax, qword [_iw_dir_len]
+    add     rax, qword [_iw_pa_name_len]
+    mov     byte [_iw_full_buf + rax], 0
+
+    ; jsonl_first_ts_epoch(full_path)
+    lea     rdi, [_iw_full_buf]
+    call    jsonl_first_ts_epoch
+    mov     r9, rax                  ; ts (only valid if rcx==0)
+    test    rcx, rcx
+    js      .pa_next_dent
+
+    ; delta = abs(ts - pid_start)
+    mov     rax, qword [_iw_pid_start]
+    sub     r9, rax
+    jns     .pa_pos
+    neg     r9
+.pa_pos:
+    cmp     r9, JSONL_PID_TOLERANCE
+    ja      .pa_next_dent
+    cmp     r9, qword [_iw_pa_best_delta]
+    jae     .pa_next_dent
+    ; new best
+    mov     qword [_iw_pa_best_delta], r9
+    mov     rax, qword [_iw_pa_name_len]
+    mov     qword [_iw_pa_best_name_len], rax
+    mov     rsi, qword [_iw_pa_name_ptr]
+    mov     rdx, rax
+    lea     rdi, [_iw_pa_best_name]
+    call    memcpy
+    jmp     .pa_next_dent
+
+.pa_scan_done:
+    mov     rdi, r15
+    call    sys_close
+    cmp     qword [_iw_pa_best_name_len], 0
+    je      .pa_err
+
+    mov     rdi, r12
+    lea     rsi, [_iw_dir_buf]
+    mov     rdx, qword [_iw_dir_len]
+    call    memcpy
+    mov     r14, rdx
+    lea     rdi, [r12 + r14]
+    lea     rsi, [_iw_pa_best_name]
+    mov     rdx, qword [_iw_pa_best_name_len]
+    call    memcpy
+    add     r14, rdx
+    mov     byte [r12 + r14], 0
+
+    mov     rax, r14
+    xor     r8, r8
+    pop     r15
+    pop     r14
+    pop     r13
+    pop     r12
+    pop     rbp
+    pop     rbx
+    ret
+
+.pa_err:
+    mov     r8, -1
+    xor     eax, eax
+    pop     r15
+    pop     r14
+    pop     r13
+    pop     r12
+    pop     rbp
+    pop     rbx
+    ret
+
 segment readable
 _seg_proj2      db '/.claude/projects/'
 _seg_proj2_len  = $ - _seg_proj2
@@ -324,5 +526,11 @@ _iw_best_name_len rq 1
 _iw_best_name_buf rb 256
 _iw_claimed_buf   rq 1
 _iw_claimed_n     rq 1
+_iw_pid_start         rq 1
+_iw_pa_best_delta     rq 1
+_iw_pa_best_name_len  rq 1
+_iw_pa_best_name      rb 256
+_iw_pa_name_ptr       rq 1
+_iw_pa_name_len       rq 1
 _dbg_lf_iw        db 0x0A
 _dbg_sp_iw        db ' '

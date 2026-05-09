@@ -95,7 +95,7 @@ parse_jsonl_buf:
     inc     r14                      ; for next iter
 .skip_advance:
 
-    ; -- check for top-level "type":"assistant" --
+    ; -- find top-level "type" --
     mov     rdi, rbx
     mov     rsi, rbp
     lea     rdx, [_skey_type]
@@ -103,16 +103,17 @@ parse_jsonl_buf:
     call    json_find_key
     test    rcx, rcx
     js      .line_loop
-    ; rax = value start, rdx = value end (one-past-close-quote)
     cmp     byte [rax], '"'
     jne     .line_loop
-    ; inner range: [rax+1, rdx-1)
+    ; inner range: [rax+1, rdx-1) — value without quotes
     lea     r8, [rax + 1]
     lea     r9, [rdx - 1]
     mov     r11, r9
     sub     r11, r8                  ; inner len
+
+    ; "assistant" → full extraction (timestamp + model + tokens)
     cmp     r11, _str_assistant_len
-    jne     .line_loop
+    jne     .check_user_or_system
     push    r8
     push    r9
     mov     rdi, r8
@@ -122,7 +123,67 @@ parse_jsonl_buf:
     pop     r9
     pop     r8
     test    rax, rax
+    jnz     .check_user_or_system    ; same length but different word
+    jmp     .have_assistant
+
+.check_user_or_system:
+    ; "user" or "system" → timestamp-only update
+    cmp     r11, _str_user_len
+    jne     .check_system
+    push    r8
+    push    r9
+    mov     rdi, r8
+    lea     rsi, [_str_user]
+    mov     rdx, _str_user_len
+    call    memcmp
+    pop     r9
+    pop     r8
+    test    rax, rax
+    jz      .ts_only
+.check_system:
+    cmp     r11, _str_system_len
+    jne     .line_loop
+    push    r8
+    push    r9
+    mov     rdi, r8
+    lea     rsi, [_str_system]
+    mov     rdx, _str_system_len
+    call    memcmp
+    pop     r9
+    pop     r8
+    test    rax, rax
     jnz     .line_loop
+.ts_only:
+    ; pull just the timestamp; do not touch model/tokens
+    mov     rdi, rbx
+    mov     rsi, rbp
+    lea     rdx, [_skey_timestamp]
+    mov     ecx, _skey_timestamp_len
+    call    json_find_key
+    test    rcx, rcx
+    js      .line_loop
+    cmp     byte [rax], '"'
+    jne     .line_loop
+    inc     rax
+    dec     rdx
+    cmp     rax, rdx
+    ja      .line_loop
+    mov     r9, rdx
+    sub     r9, rax
+    cmp     r9, 32
+    jbe     .ts_only_ok
+    mov     r9, 32
+.ts_only_ok:
+    mov     qword [r12 + INFO_OFF_TS_LEN], r9
+    push    r9
+    mov     rsi, rax
+    lea     rdi, [r12 + INFO_OFF_TS_BUF]
+    mov     rdx, r9
+    call    memcpy
+    pop     r9
+    jmp     .line_loop
+
+.have_assistant:
 
     ; -- skip if line contains "<synthetic>" --
     mov     rdi, rbx
@@ -348,6 +409,10 @@ _skey_cache_read       db 'cache_read_input_tokens'
 _skey_cache_read_len   = $ - _skey_cache_read
 _str_assistant         db 'assistant'
 _str_assistant_len     = $ - _str_assistant
+_str_user              db 'user'
+_str_user_len          = $ - _str_user
+_str_system            db 'system'
+_str_system_len        = $ - _str_system
 _str_synthetic         db '<synthetic>'
 _str_synthetic_len     = $ - _str_synthetic
 

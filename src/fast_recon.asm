@@ -17,8 +17,11 @@ KEY_TICK_MS   = 100
 
 ; JSONL tail window: read_file_tail mmaps at most this many bytes from the
 ; end of each session's JSONL — long sessions can be tens or hundreds of MB.
-; We only care about the most recent assistant record.
-JSONL_TAIL_BYTES = 65536
+; We only care about the most recent assistant record, but in active sessions
+; a single tool-result line can be megabytes, so the window has to comfortably
+; outsize the largest plausible non-assistant line plus the assistant line
+; that follows it.
+JSONL_TAIL_BYTES = 1048576
 
 ; kill grace: SIGTERM, poll every KILL_GRACE_MS ms up to KILL_GRACE_TICKS
 ; times for the pid to exit. If still alive, send SIGKILL and wait
@@ -375,40 +378,61 @@ refresh_panes:
     mov     qword [r12 + ROW_OFF_STATUS], rax
 
     ; --- resolve stable identity (cwd / git / uuid / jsonl_path) via cache ---
+    ; cwd + git_info are populated once on cold miss and reused. The JSONL
+    ; lookup is retried every tick whenever PCACHE_OFF_JPATH_LEN is still 0,
+    ; because brand-new claude pids have no session file or JSONL yet.
     mov     rdi, qword [r13 + PANE_OFF_PID]
     call    pcache_lookup
     test    rax, rax
-    jnz     .cache_hit
-    ; cold miss: allocate slot and run the heavy resolvers, populating the
-    ; slot. Subsequent ticks will read from cache.
+    jnz     .cache_warm
+    ; cold miss: alloc + populate cwd/git, then fall into .resolve_jsonl
     mov     rdi, qword [r13 + PANE_OFF_PID]
     call    pcache_alloc
     mov     r14, rax
 
-    ; pid_cwd → slot+CWD; invalidate slot if it fails so we retry next tick
     mov     rdi, qword [r13 + PANE_OFF_PID]
     lea     rsi, [r14 + PCACHE_OFF_CWD]
     mov     edx, 256
     call    pid_cwd
     test    rcx, rcx
-    jns     .cwd_ok
+    jns     .cold_cwd_ok
     mov     qword [r14 + PCACHE_OFF_PID], 0
     jmp     .copy_to_row
-.cwd_ok:
+.cold_cwd_ok:
     mov     qword [r14 + PCACHE_OFF_CWD_LEN], rax
     mov     byte [r14 + PCACHE_OFF_CWD + rax], 0
 
-    ; git_project_info(slot+CWD) → slot+GIT
     lea     rdi, [r14 + PCACHE_OFF_CWD]
     lea     rsi, [r14 + PCACHE_OFF_GIT]
     call    git_project_info
+    jmp     .resolve_jsonl
 
-    ; pid_session_id → slot+UUID, then find_jsonl_path
+.cache_warm:
+    mov     r14, rax
+    ; if the cached slot already has a JSONL path, just stage it and
+    ; skip the (expensive) discovery step.
+    mov     rcx, qword [r14 + PCACHE_OFF_JPATH_LEN]
+    test    rcx, rcx
+    jz      .resolve_jsonl
+    push    rcx
+    lea     rdi, [jsonl_path]
+    lea     rsi, [r14 + PCACHE_OFF_JPATH]
+    mov     rdx, rcx
+    call    memcpy
+    pop     rcx
+    mov     byte [jsonl_path + rcx], 0
+    jmp     .copy_to_row
+
+.resolve_jsonl:
+    ; need a cwd to do anything useful
+    cmp     qword [r14 + PCACHE_OFF_CWD_LEN], 0
+    je      .copy_to_row
+
     mov     rdi, qword [r13 + PANE_OFF_PID]
     lea     rsi, [r14 + PCACHE_OFF_UUID]
     call    pid_session_id
     test    rcx, rcx
-    js      .cold_fallback_jsonl
+    js      .resolve_fallback
     mov     qword [r14 + PCACHE_OFF_UUID_LEN], rax
     mov     r8, rax
     lea     rdi, [r14 + PCACHE_OFF_UUID]
@@ -417,8 +441,24 @@ refresh_panes:
     mov     ecx, 1024
     call    find_jsonl_path
     test    r8, r8
-    jns     .cold_got_jsonl
-.cold_fallback_jsonl:
+    jns     .resolve_got
+.resolve_fallback:
+    ; pid-anchored: when {PID}.json is missing, match a JSONL whose first-line
+    ; timestamp lines up with the pid's wall-clock start time. This is a
+    ; pid-keyed link that doesn't depend on Claude Code writing session files.
+    mov     rdi, qword [r13 + PANE_OFF_PID]
+    call    pid_start_epoch
+    test    rcx, rcx
+    js      .resolve_mtime
+    lea     rdi, [r14 + PCACHE_OFF_CWD]
+    mov     rsi, qword [r14 + PCACHE_OFF_CWD_LEN]
+    lea     rdx, [jsonl_path]
+    mov     ecx, 1024
+    mov     r8, rax                  ; pid_start_epoch
+    call    find_jsonl_by_pid_start
+    test    r8, r8
+    jns     .resolve_got
+.resolve_mtime:
     lea     rdi, [r14 + PCACHE_OFF_CWD]
     mov     rsi, qword [r14 + PCACHE_OFF_CWD_LEN]
     lea     rdx, [jsonl_path]
@@ -428,8 +468,7 @@ refresh_panes:
     call    find_recent_jsonl_in_cwd
     test    r8, r8
     js      .copy_to_row
-.cold_got_jsonl:
-    ; rax = path_len; persist into slot and claim it
+.resolve_got:
     mov     qword [r14 + PCACHE_OFF_JPATH_LEN], rax
     push    rax
     lea     rdi, [r14 + PCACHE_OFF_JPATH]
@@ -439,21 +478,6 @@ refresh_panes:
     pop     rax
     mov     byte [r14 + PCACHE_OFF_JPATH + rax], 0
     call    claim_jsonl_path
-    jmp     .copy_to_row
-
-.cache_hit:
-    mov     r14, rax
-    ; populate static jsonl_path from cache for the parse step below
-    mov     rcx, qword [r14 + PCACHE_OFF_JPATH_LEN]
-    test    rcx, rcx
-    jz      .copy_to_row
-    push    rcx
-    lea     rdi, [jsonl_path]
-    lea     rsi, [r14 + PCACHE_OFF_JPATH]
-    mov     rdx, rcx
-    call    memcpy
-    pop     rcx
-    mov     byte [jsonl_path + rcx], 0
 
 .copy_to_row:
     ; mirror cached fields into the per-tick row (cwd + git_info)
@@ -539,9 +563,30 @@ refresh_panes:
     mov     rsi, rax
     call    iso8601_to_epoch
     mov     qword [r12 + ROW_OFF_TS_EPOCH], rax
-    jmp     .ts_done
+    jmp     .ts_after_parse
 .ts_zero:
     mov     qword [r12 + ROW_OFF_TS_EPOCH], 0
+.ts_after_parse:
+
+    ; Reconcile Status and ts_epoch against the JSONL file's mtime — the
+    ; authoritative "is the session writing" signal. mtime stale + spinner
+    ; says Working ⇒ flip to Idle (false-positive correction).
+    mov     rcx, qword [r14 + PCACHE_OFF_JPATH_LEN]
+    test    rcx, rcx
+    jz      .skip_reconcile
+    lea     rdi, [jsonl_path]
+    call    path_mtime
+    test    rcx, rcx
+    js      .skip_reconcile
+    mov     rsi, rax                     ; mtime
+    jmp     .do_reconcile
+.skip_reconcile:
+    mov     rsi, -1
+.do_reconcile:
+    mov     rdi, r12
+    mov     rdx, qword [now_secs]
+    call    reconcile_status_last
+
 .ts_done:
     inc     ebp
     jmp     .enrich_loop
@@ -963,13 +1008,11 @@ draw_row:
     call    sys_write
 
 .col_activity:
-    mov     r12, qword [r14 + ROW_OFF_INFO + INFO_OFF_TS_LEN]
-    test    r12, r12
+    ; Last reads ROW_OFF_TS_EPOCH (the same value the sort key uses) so
+    ; the column and the row order can never disagree.
+    mov     r13, qword [r14 + ROW_OFF_TS_EPOCH]
+    test    r13, r13
     jz      .act_dash
-    lea     rdi, [r14 + ROW_OFF_INFO + INFO_OFF_TS_BUF]
-    mov     rsi, r12
-    call    iso8601_to_epoch
-    mov     r13, rax
     lea     rdi, [scratch]
     mov     esi, 16
     mov     rdx, qword [now_secs]
