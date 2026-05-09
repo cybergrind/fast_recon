@@ -20,6 +20,13 @@ KEY_TICK_MS   = 100
 ; We only care about the most recent assistant record.
 JSONL_TAIL_BYTES = 65536
 
+; kill grace: SIGTERM, poll every KILL_GRACE_MS ms up to KILL_GRACE_TICKS
+; times for the pid to exit. If still alive, send SIGKILL and wait
+; KILL_REAP_MS for the kernel to reap before refreshing.
+KILL_GRACE_MS    = 100
+KILL_GRACE_TICKS = 5
+KILL_REAP_MS     = 100
+
 ; sum of visible column widths (kept fixed via right-pad in each cell)
 ROW_VISIBLE_COLS = 4 + 17 + 25 + 11 + 13 + 15 + 12
 
@@ -123,8 +130,33 @@ entry $
     imul    rax, PANE_REC_BYTES
     lea     rcx, [pane_recs]
     mov     rdi, qword [rcx + rax + PANE_OFF_PID]
+    mov     qword [kill_pid], rdi
     mov     esi, SIGTERM
     call    sys_kill
+
+    ; poll up to KILL_GRACE_TICKS x KILL_GRACE_MS for the pid to exit, then
+    ; escalate to SIGKILL. kill(pid, 0) returns 0 while the process is alive
+    ; and -ESRCH (-3) once it's gone.
+    mov     ebx, KILL_GRACE_TICKS
+.kill_wait:
+    test    ebx, ebx
+    jz      .kill_escalate
+    mov     edi, KILL_GRACE_MS
+    call    sys_sleep_ms
+    mov     rdi, qword [kill_pid]
+    xor     esi, esi
+    call    sys_kill
+    test    rax, rax
+    jnz     .kill_done               ; non-zero → gone (or unreachable)
+    dec     ebx
+    jmp     .kill_wait
+.kill_escalate:
+    mov     rdi, qword [kill_pid]
+    mov     esi, SIGKILL
+    call    sys_kill
+    mov     edi, KILL_REAP_MS
+    call    sys_sleep_ms
+.kill_done:
     call    refresh_panes
     call    redraw
     jmp     .poll_loop
@@ -1027,6 +1059,7 @@ claimed_n     rd 1
 align 8
 claimed_buf   rb MAX_PANES * CLAIM_SLOT
 alive_pids    rd MAX_PANES
+kill_pid      rq 1
 n_panes       rd 1
 sel           rd 1
 tick_remaining rd 1

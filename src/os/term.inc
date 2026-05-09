@@ -14,6 +14,31 @@ sys_kill:
     syscall
     ret
 
+; sys_sleep_ms(rdi=ms) -> rax = 0/-errno
+;   Sleeps the calling thread; safe for ms == 0 (no-op).
+sys_sleep_ms:
+    test    rdi, rdi
+    jz      .out
+    sub     rsp, 16
+    ; tv_sec = ms / 1000; tv_nsec = (ms % 1000) * 1_000_000
+    mov     rax, rdi
+    mov     ecx, 1000
+    xor     edx, edx
+    div     rcx
+    mov     qword [rsp], rax
+    mov     rax, rdx
+    imul    rax, 1000000
+    mov     qword [rsp + 8], rax
+    mov     rdi, rsp
+    xor     rsi, rsi
+    mov     eax, SYS_nanosleep
+    syscall
+    add     rsp, 16
+    ret
+.out:
+    xor     eax, eax
+    ret
+
 ; sys_poll(rdi=pollfds, rsi=nfds, rdx=timeout_ms) -> rax
 sys_poll:
     mov     eax, SYS_poll
