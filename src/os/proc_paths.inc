@@ -271,6 +271,177 @@ pid_start_epoch:
     pop     rbx
     ret
 
+; pid_descend_to_claude(rdi=pane_pid) -> rax = claude_pid (or pane_pid unchanged)
+;
+; tmux reports `pane_pid` as the SHELL that hosts the foreground command,
+; not the command itself. Walk /proc/{pane_pid}/task/{pane_pid}/children
+; (a single line of space-separated child PIDs) and return the first whose
+; /proc/{child}/comm starts with "claude". If none match — or the pane_pid
+; doesn't exist at all — return rdi unchanged so callers that already pass
+; a real claude pid keep working.
+PD_CHILDREN_BUF = 512
+PD_COMM_BUF     = 32
+
+pid_descend_to_claude:
+    push    rbx
+    push    rbp
+    push    r12
+    push    r13
+    push    r14
+    push    r15
+    sub     rsp, 64                      ; path scratch
+
+    mov     r12, rdi                     ; pane_pid (default return)
+
+    ; build "/proc/{pid}/task/{pid}/children" in scratch
+    mov     rdi, rsp
+    mov     dword [rdi], '/pro'
+    mov     word [rdi + 4], 'c/'
+    add     rdi, 6
+    mov     rsi, r12
+    call    format_u64
+    add     rdi, rax
+    mov     dword [rdi], '/tas'
+    mov     word [rdi + 4], 'k/'
+    add     rdi, 6
+    mov     rsi, r12
+    call    format_u64
+    add     rdi, rax
+    ; "/children\0" — 9 chars
+    mov     dword [rdi], '/chi'
+    mov     dword [rdi + 4], 'ldre'
+    mov     byte [rdi + 8], 'n'
+    mov     byte [rdi + 9], 0
+
+    ; open + read
+    mov     rdi, rsp
+    mov     rsi, O_RDONLY
+    xor     edx, edx
+    mov     eax, SYS_open
+    syscall
+    test    rax, rax
+    js      .done                        ; pid doesn't exist or no perm
+    mov     r13, rax                     ; fd
+
+    sub     rsp, PD_CHILDREN_BUF
+    mov     rdi, r13
+    mov     rsi, rsp
+    mov     edx, PD_CHILDREN_BUF - 1
+    mov     eax, SYS_read
+    syscall
+    mov     r14, rax                     ; bytes
+    mov     rdi, r13
+    push    rax
+    mov     eax, SYS_close
+    syscall
+    pop     rax
+    test    r14, r14
+    jle     .free_buf
+
+    ; iterate space-separated decimal PIDs
+    mov     rbx, rsp                     ; cursor
+    lea     rbp, [rsp + r14]             ; end
+.cs_skip_ws:
+    cmp     rbx, rbp
+    jae     .free_buf
+    mov     al, byte [rbx]
+    cmp     al, ' '
+    je      .cs_inc
+    cmp     al, 0x0A
+    je      .cs_inc
+    cmp     al, 0x09
+    je      .cs_inc
+    jmp     .cs_parse
+.cs_inc:
+    inc     rbx
+    jmp     .cs_skip_ws
+.cs_parse:
+    mov     rdi, rbx
+    mov     rsi, rbp
+    sub     rsi, rdi
+    call    parse_u64                    ; rax = child pid, rdx = consumed
+    test    rdx, rdx
+    jz      .free_buf
+    add     rbx, rdx
+    mov     r15, rax                     ; child_pid
+
+    ; check /proc/{child_pid}/comm starts with "claude"
+    mov     rdi, r15
+    call    _pd_comm_is_claude
+    test    rax, rax
+    jz      .cs_skip_ws
+    mov     r12, r15                     ; matched — record + return
+    jmp     .free_buf
+
+.free_buf:
+    add     rsp, PD_CHILDREN_BUF
+.done:
+    add     rsp, 64
+    mov     rax, r12
+    pop     r15
+    pop     r14
+    pop     r13
+    pop     r12
+    pop     rbp
+    pop     rbx
+    ret
+
+; _pd_comm_is_claude(rdi=pid) -> rax = 1 if /proc/{pid}/comm starts with "claude"
+_pd_comm_is_claude:
+    push    rbx
+    push    r12
+    sub     rsp, 64
+    mov     rsi, rdi
+    mov     rdi, rsp
+    mov     dword [rdi], '/pro'
+    mov     word [rdi + 4], 'c/'
+    add     rdi, 6
+    call    format_u64
+    add     rdi, rax
+    mov     dword [rdi], '/com'
+    mov     byte [rdi + 4], 'm'
+    mov     byte [rdi + 5], 0
+    mov     rdi, rsp
+    mov     rsi, O_RDONLY
+    xor     edx, edx
+    mov     eax, SYS_open
+    syscall
+    test    rax, rax
+    js      .nope
+    mov     r12, rax
+    sub     rsp, PD_COMM_BUF
+    mov     rdi, r12
+    mov     rsi, rsp
+    mov     edx, PD_COMM_BUF
+    mov     eax, SYS_read
+    syscall
+    mov     rbx, rax
+    mov     rdi, r12
+    push    rax
+    mov     eax, SYS_close
+    syscall
+    pop     rax
+    cmp     rbx, 6
+    jb      .nope_drop
+    cmp     dword [rsp], 'clau'
+    jne     .nope_drop
+    cmp     word [rsp + 4], 'de'
+    jne     .nope_drop
+    add     rsp, PD_COMM_BUF
+    add     rsp, 64
+    mov     eax, 1
+    pop     r12
+    pop     rbx
+    ret
+.nope_drop:
+    add     rsp, PD_COMM_BUF
+.nope:
+    add     rsp, 64
+    xor     eax, eax
+    pop     r12
+    pop     rbx
+    ret
+
 segment readable
 _pp_proc_stat_path db '/proc/stat', 0
 

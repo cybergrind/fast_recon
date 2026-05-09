@@ -277,6 +277,29 @@ refresh_panes:
     call    parse_claude_panes
     mov     dword [n_panes], eax
 
+    ; tmux's pane_pid is the shell, not the claude command running in it.
+    ; Descend each pane record's PID to the actual claude child so all
+    ; downstream pid lookups (sessions, /proc, JSONL anchoring) hit the
+    ; right process.
+    xor     ecx, ecx
+.descend_loop:
+    cmp     ecx, eax
+    jge     .descend_done
+    mov     edx, ecx
+    imul    edx, PANE_REC_BYTES
+    push    rax
+    push    rcx
+    mov     rdi, qword [pane_recs + rdx + PANE_OFF_PID]
+    call    pid_descend_to_claude
+    pop     rcx
+    mov     edx, ecx
+    imul    edx, PANE_REC_BYTES
+    mov     qword [pane_recs + rdx + PANE_OFF_PID], rax
+    pop     rax
+    inc     ecx
+    jmp     .descend_loop
+.descend_done:
+
     ; clamp sel
     mov     ecx, dword [sel]
     cmp     ecx, eax
@@ -1053,6 +1076,7 @@ argv_tmux  dq path_tmux, arg_lp, arg_a, arg_F, arg_fmt, 0
 
 msg_empty  db '(no claude panes)'
 msg_empty_len = $ - msg_empty
+
 hint       db ' j/k move  x kill  q quit'
 hint_len   = $ - hint
 
