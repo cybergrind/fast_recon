@@ -75,16 +75,17 @@ git_project_info:
     mov     rbp, rsi                 ; &info
 
     ; --- argv for `git -C <cwd> rev-parse --show-toplevel` ---
-    mov     qword [_gi_argv + 0],  _gi_path_git
-    mov     qword [_gi_argv + 8],  _gi_arg_C
-    mov     qword [_gi_argv + 16], rbx
-    mov     qword [_gi_argv + 24], _gi_arg_revparse
-    mov     qword [_gi_argv + 32], _gi_arg_toplevel
-    mov     qword [_gi_argv + 40], 0
+    mov     r9, qword [_gi_argv_ptr]
+    mov     qword [r9 + 0],  _gi_path_git
+    mov     qword [r9 + 8],  _gi_arg_C
+    mov     qword [r9 + 16], rbx
+    mov     qword [r9 + 24], _gi_arg_revparse
+    mov     qword [r9 + 32], _gi_arg_toplevel
+    mov     qword [r9 + 40], 0
 
     lea     rdi, [_gi_path_git]
-    lea     rsi, [_gi_argv]
-    lea     rdx, [_gi_buf]
+    mov     rsi, qword [_gi_argv_ptr]
+    mov     rdx, qword [_gi_buf_ptr]
     mov     rcx, _GI_BUF_BYTES
     call    exec_capture
     test    rax, rax
@@ -94,13 +95,13 @@ git_project_info:
     jnz     .not_git                 ; nonzero exit -> not a repo
 
     ; trim trailing
-    lea     rdi, [_gi_buf]
+    mov     rdi, qword [_gi_buf_ptr]
     mov     rsi, r12
     call    _trim_lf
     mov     r12, rax                 ; toplevel_len
 
     ; basename → repo name
-    lea     rdi, [_gi_buf]
+    mov     rdi, qword [_gi_buf_ptr]
     mov     rsi, r12
     call    _basename
     cmp     rdx, 64
@@ -130,7 +131,7 @@ git_project_info:
     jbe     .no_reldir
     ; check prefix match
     mov     rdi, rbx
-    lea     rsi, [_gi_buf]
+    mov     rsi, qword [_gi_buf_ptr]
     mov     rdx, r12
     call    memcmp
     test    rax, rax
@@ -160,14 +161,15 @@ git_project_info:
 
 .branch:
     ; --- argv for `git -C <cwd> rev-parse --abbrev-ref HEAD` ---
-    mov     qword [_gi_argv + 24], _gi_arg_revparse
-    mov     qword [_gi_argv + 32], _gi_arg_abbrev
-    mov     qword [_gi_argv + 40], _gi_arg_head
-    mov     qword [_gi_argv + 48], 0
+    mov     r9, qword [_gi_argv_ptr]
+    mov     qword [r9 + 24], _gi_arg_revparse
+    mov     qword [r9 + 32], _gi_arg_abbrev
+    mov     qword [r9 + 40], _gi_arg_head
+    mov     qword [r9 + 48], 0
 
     lea     rdi, [_gi_path_git]
-    lea     rsi, [_gi_argv]
-    lea     rdx, [_gi_buf]
+    mov     rsi, qword [_gi_argv_ptr]
+    mov     rdx, qword [_gi_buf_ptr]
     mov     rcx, _GI_BUF_BYTES
     call    exec_capture
     test    rax, rax
@@ -176,7 +178,7 @@ git_project_info:
     test    rdx, rdx
     jnz     .br_skip
 
-    lea     rdi, [_gi_buf]
+    mov     rdi, qword [_gi_buf_ptr]
     mov     rsi, r12
     call    _trim_lf
     cmp     rax, 40
@@ -185,7 +187,7 @@ git_project_info:
 .br_ok:
     mov     qword [rbp + GIT_OFF_BR_LEN], rax
     push    rax
-    mov     rsi, _gi_buf
+    mov     rsi, qword [_gi_buf_ptr]
     lea     rdi, [rbp + GIT_OFF_BR_BUF]
     mov     rdx, rax
     call    memcpy
@@ -236,5 +238,7 @@ _GI_BUF_BYTES = 4096
 
 segment readable writeable
 align 8
-_gi_argv  rq 8
-_gi_buf   rb _GI_BUF_BYTES
+; _gi_argv (64 B) and _gi_buf (4 KB) live in the arena; these pointers
+; are populated at startup.
+_gi_argv_ptr rq 1
+_gi_buf_ptr  rq 1

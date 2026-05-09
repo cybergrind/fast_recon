@@ -13,7 +13,7 @@ pid_cwd:
     mov     r12, rdx                 ; outcap
 
     ; build path in scratch: "/proc/" + decimal(pid) + "/cwd" + 0
-    lea     r13, [_pp_scratch]
+    arena_lea r13, ARENA_OFF_PP_SCRATCH
     mov     dword [r13], '/pro'
     mov     word [r13 + 4], 'c/'
     add     r13, 6
@@ -25,7 +25,7 @@ pid_cwd:
     mov     byte [r13 + 4], 0
 
     ; readlink(scratch, outbuf, outcap)
-    lea     rdi, [_pp_scratch]
+    arena_lea rdi, ARENA_OFF_PP_SCRATCH
     mov     rsi, rbx
     mov     rdx, r12
     call    sys_readlink
@@ -445,6 +445,4 @@ _pd_comm_is_claude:
 segment readable
 _pp_proc_stat_path db '/proc/stat', 0
 
-segment readable writeable
-align 8
-_pp_scratch rb 64
+; _pp_scratch lives in arena (ARENA_OFF_PP_SCRATCH).

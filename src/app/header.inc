@@ -119,5 +119,5 @@ _col_table_n = 7
 
 segment readable writeable
 align 8
-hdr_cols     rb HDR_BUF_CAP           ; populated by build_header at startup
+; hdr_cols lives in arena (ARENA_OFF_HDR_COLS); this just stores the length.
 hdr_cols_len rq 1

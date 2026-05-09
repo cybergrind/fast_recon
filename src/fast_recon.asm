@@ -50,13 +50,17 @@ entry $
     mov     qword [_iw_dir_buf_ptr], rax
     arena_lea rax, ARENA_OFF_IW_FULL_BUF
     mov     qword [_iw_full_buf_ptr], rax
+    arena_lea rax, ARENA_OFF_GI_BUF
+    mov     qword [_gi_buf_ptr], rax
+    arena_lea rax, ARENA_OFF_GI_ARGV
+    mov     qword [_gi_argv_ptr], rax
 
     ; cache terminal width for row-padding (highlight bg fills)
     call    term_get_cols
     mov     dword [term_cols], eax
 
     ; render the static column-header line into hdr_cols once
-    lea     rdi, [hdr_cols]
+    arena_lea rdi, ARENA_OFF_HDR_COLS
     mov     esi, HDR_BUF_CAP
     call    build_header
     mov     qword [hdr_cols_len], rax
@@ -137,7 +141,8 @@ entry $
     jz      .poll_loop
     ; sel is a DISPLAY index — map through sort_order to real row.
     movsxd  rax, dword [sel]
-    movsxd  rax, dword [sort_order + rax*4]
+    arena_lea r9, ARENA_OFF_SORT_ORDER
+    movsxd  rax, dword [r9 + rax*4]
     imul    rax, PANE_REC_BYTES
     arena_lea rcx, ARENA_OFF_PANE_RECS
     mov     rdi, qword [rcx + rax + PANE_OFF_PID]
@@ -337,11 +342,12 @@ refresh_panes:
     imul    rax, PANE_REC_BYTES
     arena_lea r9, ARENA_OFF_PANE_RECS
     mov     rax, qword [r9 + rax + PANE_OFF_PID]
-    mov     dword [alive_pids + rcx*4], eax
+    arena_lea r9, ARENA_OFF_ALIVE_PIDS
+    mov     dword [r9 + rcx*4], eax
     inc     ecx
     jmp     .alive_fill
 .alive_fill_done:
-    lea     rdi, [alive_pids]
+    arena_lea rdi, ARENA_OFF_ALIVE_PIDS
     movsxd  rsi, dword [n_panes]
     call    pcache_evict_missing
 
@@ -624,8 +630,8 @@ refresh_panes:
     ; build sort_keys + sort_order from per-row ts_epoch
     arena_lea rdi, ARENA_OFF_ROW_DATA
     movsxd  rsi, dword [n_panes]
-    lea     rdx, [sort_order]
-    lea     rcx, [sort_keys]
+    arena_lea rdx, ARENA_OFF_SORT_ORDER
+    arena_lea rcx, ARENA_OFF_SORT_KEYS
     call    compute_pane_order
 
     pop     r13
@@ -661,7 +667,7 @@ redraw:
     mov     esi, 1
     call    term_move
     call    term_fg_turquoise
-    lea     rdi, [hdr_cols]
+    arena_lea rdi, ARENA_OFF_HDR_COLS
     mov     rsi, qword [hdr_cols_len]
     call    term_write_str
     call    term_fg_default
@@ -760,7 +766,8 @@ draw_row:
     push    r15
 
     ; resolve display→real via sort_order; rbp stays as the display index
-    movsxd  rbx, dword [sort_order + rbp*4]
+    arena_lea r9, ARENA_OFF_SORT_ORDER
+    movsxd  rbx, dword [r9 + rbp*4]
     mov     rax, rbx
     imul    rax, ROW_BYTES
     arena_lea r14, ARENA_OFF_ROW_DATA
@@ -771,13 +778,13 @@ draw_row:
     add     r15, rax
 
     ; --- # (3 chars right-padded) ---
-    lea     rdi, [scratch]
+    arena_lea rdi, ARENA_OFF_SCRATCH
     mov     esi, ebp
     inc     rsi                      ; 1-based
     call    format_u64
     mov     r12, rax                 ; n digits
     mov     edi, 1
-    lea     rsi, [scratch]
+    arena_lea rsi, ARENA_OFF_SCRATCH
     mov     rdx, r12
     call    sys_write
     mov     ecx, 4
@@ -961,7 +968,7 @@ draw_row:
     jz      .model_dash
     lea     rdi, [r14 + ROW_OFF_INFO + INFO_OFF_MODEL_BUF]
     mov     rsi, r12
-    lea     rdx, [scratch]
+    arena_lea rdx, ARENA_OFF_SCRATCH
     mov     ecx, 32
     call    model_display_name
     mov     r12, rax
@@ -970,7 +977,7 @@ draw_row:
     mov     r12, 12
 .mn_ok:
     mov     edi, 1
-    lea     rsi, [scratch]
+    arena_lea rsi, ARENA_OFF_SCRATCH
     mov     rdx, r12
     call    sys_write
     mov     ecx, 13
@@ -1008,7 +1015,7 @@ draw_row:
     test    qword [r14 + ROW_OFF_INFO + INFO_OFF_TS_LEN], -1
     jz      .ctx_dash
 .ctx_render:
-    lea     rdi, [scratch]
+    arena_lea rdi, ARENA_OFF_SCRATCH
     mov     esi, 32
     mov     rdx, r12
     mov     rcx, r13
@@ -1019,7 +1026,7 @@ draw_row:
     mov     r12, 14
 .ct_ok:
     mov     edi, 1
-    lea     rsi, [scratch]
+    arena_lea rsi, ARENA_OFF_SCRATCH
     mov     rdx, r12
     call    sys_write
     mov     ecx, 15
@@ -1042,7 +1049,7 @@ draw_row:
     mov     r13, qword [r14 + ROW_OFF_TS_EPOCH]
     test    r13, r13
     jz      .act_dash
-    lea     rdi, [scratch]
+    arena_lea rdi, ARENA_OFF_SCRATCH
     mov     esi, 16
     mov     rdx, qword [now_secs]
     mov     rcx, r13
@@ -1053,7 +1060,7 @@ draw_row:
     mov     r12, 12
 .act_ok:
     mov     edi, 1
-    lea     rsi, [scratch]
+    arena_lea rsi, ARENA_OFF_SCRATCH
     mov     rdx, r12
     call    sys_write
     mov     ecx, 12
@@ -1123,16 +1130,12 @@ _proj_reset_len = $ - _proj_reset
 
 segment readable writeable
 align 8
-; out_buf and row_data live in the mmap'd arena (see os/arena.inc).
-; pane_recs lives in arena (ARENA_OFF_PANE_RECS) so the binary doesn't carry
-; MAX_PANES*PANE_REC_BYTES of zero-fill on disk.
-sort_keys     rq MAX_PANES
-sort_order    rd MAX_PANES
+; All large reservations live in the mmap'd arena (see os/arena.inc):
+;   pane_recs / claimed_buf / jsonl_path / sort_keys / sort_order /
+;   alive_pids / scratch.  Only small bookkeeping qwords/dwords stay
+;   on-disk here.
 term_cols     rd 1
 claimed_n     rd 1
-align 8
-; claimed_buf lives in arena (ARENA_OFF_CLAIMED_BUF).
-alive_pids    rd MAX_PANES
 kill_pid      rq 1
 n_panes       rd 1
 sel           rd 1
@@ -1140,7 +1143,4 @@ tick_remaining rd 1
 in_raw        db 0
 align 8
 tsave         rb TERMIOS_BYTES
-uuid_buf      rb 64
-; jsonl_path lives in arena (ARENA_OFF_JSONL_PATH).
-scratch       rb 64
 now_secs      rq 1

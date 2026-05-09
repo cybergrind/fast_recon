@@ -239,7 +239,7 @@ find_recent_jsonl_in_cwd:
     push    rdi
     push    rsi
     mov     rdi, qword [_iw_full_buf_ptr]
-    lea     rsi, [_iw_statbuf]
+    arena_lea rsi, ARENA_OFF_IW_STATBUF
     call    sys_stat
     pop     rsi
     pop     rdi
@@ -247,23 +247,25 @@ find_recent_jsonl_in_cwd:
     js      .next_dent
 
     ; (sec_new, nsec_new) > (sec_best, nsec_best) ?  — full nanosecond compare
-    mov     rax, qword [_iw_statbuf + STAT_MTIME_OFFSET]
+    arena_lea r10, ARENA_OFF_IW_STATBUF
+    mov     rax, qword [r10 + STAT_MTIME_OFFSET]
     cmp     rax, qword [_iw_best_mtime]
     ja      .new_best
     jb      .next_dent
-    mov     rax, qword [_iw_statbuf + STAT_MTIME_NS_OFFSET]
+    mov     rax, qword [r10 + STAT_MTIME_NS_OFFSET]
     cmp     rax, qword [_iw_best_mtime_ns]
     jbe     .next_dent
 .new_best:
-    mov     rax, qword [_iw_statbuf + STAT_MTIME_OFFSET]
+    arena_lea r10, ARENA_OFF_IW_STATBUF
+    mov     rax, qword [r10 + STAT_MTIME_OFFSET]
     mov     qword [_iw_best_mtime], rax
-    mov     rax, qword [_iw_statbuf + STAT_MTIME_NS_OFFSET]
+    mov     rax, qword [r10 + STAT_MTIME_NS_OFFSET]
     mov     qword [_iw_best_mtime_ns], rax
     mov     qword [_iw_best_name_len], rsi
     mov     rdx, rsi
     push    rsi
     mov     rsi, rdi
-    lea     rdi, [_iw_best_name_buf]
+    arena_lea rdi, ARENA_OFF_IW_BEST_NAME
     call    memcpy
     pop     rsi
     jmp     .next_dent
@@ -282,7 +284,7 @@ find_recent_jsonl_in_cwd:
     call    memcpy
     mov     r14, rdx
     lea     rdi, [r12 + r14]
-    lea     rsi, [_iw_best_name_buf]
+    arena_lea rsi, ARENA_OFF_IW_BEST_NAME
     mov     rdx, qword [_iw_best_name_len]
     call    memcpy
     add     r14, rdx
@@ -473,7 +475,7 @@ find_jsonl_by_pid_start:
     mov     qword [_iw_pa_best_name_len], rax
     mov     rsi, qword [_iw_pa_name_ptr]
     mov     rdx, rax
-    lea     rdi, [_iw_pa_best_name]
+    arena_lea rdi, ARENA_OFF_IW_PA_BEST
     call    memcpy
     jmp     .pa_next_dent
 
@@ -489,7 +491,7 @@ find_jsonl_by_pid_start:
     call    memcpy
     mov     r14, rdx
     lea     rdi, [r12 + r14]
-    lea     rsi, [_iw_pa_best_name]
+    arena_lea rsi, ARENA_OFF_IW_PA_BEST
     mov     rdx, qword [_iw_pa_best_name_len]
     call    memcpy
     add     r14, rdx
@@ -530,17 +532,15 @@ align 8
 _iw_dir_len      rq 1
 _iw_dent_size    rq 1
 _iw_dent_cur     rq 1
-_iw_statbuf      rb 144
+; statbuf, best_name, pa_best_name now in arena (ARENA_OFF_IW_*).
 _iw_best_mtime    rq 1
 _iw_best_mtime_ns rq 1
 _iw_best_name_len rq 1
-_iw_best_name_buf rb 256
 _iw_claimed_buf   rq 1
 _iw_claimed_n     rq 1
 _iw_pid_start         rq 1
 _iw_pa_best_delta     rq 1
 _iw_pa_best_name_len  rq 1
-_iw_pa_best_name      rb 256
 _iw_pa_name_ptr       rq 1
 _iw_pa_name_len       rq 1
 ; Pointers populated at startup (arena_base + ARENA_OFF_IW_*_BUF) so we
